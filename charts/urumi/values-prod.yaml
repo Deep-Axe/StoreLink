@@ -1,0 +1,20 @@
+# Replace registry/domain values and supply urumi-credentials and urumi-tls.
+teamId: production
+images:
+  app: registry.example.com/urumi/app:0.1.0
+  store: registry.example.com/urumi/wordpress:0.1.0
+store:
+  host: store.example.com
+  publicUrl: https://store.example.com
+gateway:
+  host: dashboard.example.com
+  publicUrl: https://dashboard.example.com
+storage:
+  className: local-path
+  wordpress: 10Gi
+  mariadb: 5Gi
+  postgres: 5Gi
+ingress:
+  tls:
+    enabled: true
+    secretName: urumi-tls

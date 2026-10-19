@@ -1,0 +1,6 @@
+apiVersion: v2
+name: urumi
+description: WooCommerce hosting and a team MCP gateway
+type: application
+version: 0.1.0
+appVersion: '0.1.0'

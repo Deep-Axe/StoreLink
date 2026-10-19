@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "urumi.name" . }}-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { urumi/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels: { urumi/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+    spec:
+      serviceAccountName: {{ include "urumi.name" . }}-gateway
+      automountServiceAccountToken: true
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 }
+      initContainers:
+        - name: migrate
+          image: {{ .Values.images.app | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: [node, scripts/bootstrap-cluster.ts]
+          env:
+            - { name: DATABASE_URL_FILE, value: /secrets/database-url }
+            - { name: API_KEY_PEPPER_FILE, value: /secrets/api-key-pepper }
+            - { name: BOOTSTRAP_KEYS_FILE, value: /secrets/gateway-keys }
+            - { name: TEAM_ID, value: {{ .Values.teamId | quote }} }
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { cpu: "1", memory: 192Mi }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: bootstrap-secrets, mountPath: /secrets, readOnly: true }]
+      containers:
+        - name: gateway
+          image: {{ .Values.images.app | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: [node, services/gateway/src/main.ts]
+          env:
+            - { name: DATABASE_URL_FILE, value: /secrets/database-url }
+            - { name: API_KEY_PEPPER_FILE, value: /secrets/api-key-pepper }
+            - { name: UPSTREAM_SECRET_NAME, value: {{ .Values.upstreamSecretName | quote }} }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - { name: TIME_MCP_URL, value: "http://{{ include "urumi.name" . }}-time-mcp:3002/mcp" }
+            - { name: OPERATIONS_MCP_URL, value: "http://{{ include "urumi.name" . }}-operations-mcp:3003/mcp" }
+            - name: UPSTREAM_ALLOWED_ORIGINS
+              value: {{ printf "http://%s-woo-mcp:3001,http://%s-time-mcp:3002,http://%s-operations-mcp:3003%s" (include "urumi.name" .) (include "urumi.name" .) (include "urumi.name" .) (ternary (printf ",%s" (join "," .Values.gateway.extraUpstreamOrigins)) "" (gt (len .Values.gateway.extraUpstreamOrigins) 0)) | quote }}
+            - { name: OPENAI_MODEL, value: {{ .Values.chat.model | quote }} }
+            {{- if .Values.chat.enabled }}
+            - { name: OPENAI_API_KEY_FILE, value: /secrets/openai-api-key }
+            {{- end }}
+            - { name: WOO_MCP_URL, value: "http://{{ include "urumi.name" . }}-woo-mcp:3001/mcp" }
+            - { name: GATEWAY_ORIGIN, value: {{ .Values.gateway.publicUrl | quote }} }
+            - { name: TEAM_ID, value: {{ .Values.teamId | quote }} }
+          ports: [{ name: http, containerPort: 3000 }]
+          startupProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 2, failureThreshold: 60 }
+          readinessProbe: { httpGet: { path: /health/ready, port: http }, periodSeconds: 5, timeoutSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 10 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          resources: {{ toYaml .Values.gateway.resources | nindent 12 }}
+          volumeMounts: [{ name: gateway-secrets, mountPath: /secrets, readOnly: true }]
+      volumes:
+        - name: gateway-secrets
+          secret:
+            secretName: {{ .Values.secretName }}
+            items:
+              - { key: database-url, path: database-url }
+              - { key: api-key-pepper, path: api-key-pepper }
+              {{- if .Values.chat.enabled }}
+              - { key: openai-api-key, path: openai-api-key }
+              {{- end }}
+        - name: bootstrap-secrets
+          secret:
+            secretName: {{ .Values.secretName }}
+            items:
+              - { key: database-url, path: database-url }
+              - { key: api-key-pepper, path: api-key-pepper }
+              - { key: gateway-keys, path: gateway-keys }
+              - { key: dashboard-admin-password, path: dashboard-admin-password }
+              - { key: dashboard-member-password, path: dashboard-member-password }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "urumi.name" . }}-gateway
+spec:
+  selector: { urumi/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports: [{ port: 3000, targetPort: http }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "urumi.name" . }}-woo-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { urumi/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels: { urumi/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 }
+      containers:
+        - name: woo-mcp
+          image: {{ .Values.images.app | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: [node, services/woocommerce-mcp/src/main.ts]
+          env:
+            - { name: WOO_MCP_ORIGIN, value: "http://{{ include "urumi.name" . }}-woo-mcp:3001" }
+            - { name: STORE_PUBLIC_URL, value: {{ .Values.store.publicUrl | quote }} }
+            - { name: STORE_CONNECT_SERVICE, value: {{ include "urumi.name" . }}-wordpress }
+            - { name: WOO_MCP_TOKEN_FILE, value: /secrets/woo-mcp-token }
+            - { name: WOO_CONSUMER_KEY_FILE, value: /secrets/woo-consumer-key }
+            - { name: WOO_CONSUMER_SECRET_FILE, value: /secrets/woo-consumer-secret }
+          ports: [{ name: http, containerPort: 3001 }]
+          startupProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 2, failureThreshold: 60 }
+          readinessProbe: { httpGet: { path: /health/ready, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 10 }
+          resources: {{ toYaml .Values.wooMcp.resources | nindent 12 }}
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: secrets, mountPath: /secrets, readOnly: true }]
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ .Values.secretName }}
+            items:
+              - { key: woo-mcp-token, path: woo-mcp-token }
+              - { key: woo-consumer-key, path: woo-consumer-key }
+              - { key: woo-consumer-secret, path: woo-consumer-secret }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "urumi.name" . }}-woo-mcp
+spec:
+  selector: { urumi/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports: [{ port: 3001, targetPort: http }]

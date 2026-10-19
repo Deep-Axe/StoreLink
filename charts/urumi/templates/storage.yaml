@@ -1,0 +1,15 @@
+{{- range $component, $size := dict "wordpress" .Values.storage.wordpress "mariadb" .Values.storage.mariadb "postgres" .Values.storage.postgres }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "urumi.name" $ }}-{{ $component }}
+  labels:
+    {{- include "urumi.labels" $ | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ $.Values.storage.className | quote }}
+  resources:
+    requests:
+      storage: {{ $size }}
+{{- end }}

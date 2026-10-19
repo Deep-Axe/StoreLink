@@ -1,0 +1,47 @@
+{{- range $name, $config := dict "time" (dict "port" 3002 "directory" "time-mcp" "key" "time-mcp-token") "operations" (dict "port" 3003 "directory" "operations-mcp" "key" "operations-mcp-token") }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "urumi.name" $ }}-{{ $name }}-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { urumi/component: {{ $name }}-mcp, app.kubernetes.io/instance: {{ $.Release.Name }} }
+  template:
+    metadata:
+      labels: { urumi/component: {{ $name }}-mcp, app.kubernetes.io/instance: {{ $.Release.Name }} }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 }
+      containers:
+        - name: mcp
+          image: {{ $.Values.images.app | quote }}
+          imagePullPolicy: {{ $.Values.images.pullPolicy }}
+          command: [node, "services/{{ $config.directory }}/src/main.ts"]
+          env:
+            - { name: MCP_ORIGIN, value: "http://{{ include "urumi.name" $ }}-{{ $name }}-mcp:{{ $config.port }}" }
+            - { name: MCP_PORT, value: {{ $config.port | quote }} }
+            - { name: MCP_TOKEN_FILE, value: /secrets/token }
+            - { name: STORE_TIMEZONE, value: {{ $.Values.store.timezone | quote }} }
+          ports: [{ name: http, containerPort: {{ $config.port }} }]
+          startupProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 2, failureThreshold: 60 }
+          readinessProbe: { httpGet: { path: /health/ready, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 10 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          resources: {{ toYaml $.Values.additionalMcp.resources | nindent 12 }}
+          volumeMounts: [{ name: secrets, mountPath: /secrets, readOnly: true }]
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ $.Values.secretName }}
+            items: [{ key: {{ $config.key }}, path: token }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "urumi.name" $ }}-{{ $name }}-mcp
+spec:
+  selector: { urumi/component: {{ $name }}-mcp, app.kubernetes.io/instance: {{ $.Release.Name }} }
+  ports: [{ port: {{ $config.port }}, targetPort: http }]
+{{- end }}

@@ -1,0 +1,56 @@
+fullnameOverride: urumi
+secretName: urumi-credentials
+teamId: development
+upstreamSecretName: urumi-upstream-credentials
+chat:
+  enabled: false
+  model: gpt-6-luna
+images:
+  app: urumi-app:0.1.0-dev
+  store: urumi-wordpress:0.1.0-dev
+  postgres: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+  mariadb: mariadb:11.8@sha256:f16d7a344413e519dff518f27bdb221388f84b0d274c97c4fb5f2cb0dc1b34fa
+  pullPolicy: IfNotPresent
+store:
+  host: store.urumi.localhost
+  publicUrl: http://store.urumi.localhost
+  timezone: Asia/Kolkata
+  woocommerceVersion: '11.2.1'
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: '2', memory: 768Mi }
+gateway:
+  extraUpstreamOrigins: []
+  host: dashboard.urumi.localhost
+  publicUrl: http://dashboard.urumi.localhost
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: '1', memory: 256Mi }
+wooMcp:
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: '1', memory: 192Mi }
+additionalMcp:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: '1', memory: 128Mi }
+postgres:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: '1', memory: 256Mi }
+mariadb:
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: '1', memory: 384Mi }
+storage:
+  className: local-path
+  wordpress: 2Gi
+  mariadb: 1Gi
+  postgres: 1Gi
+ingress:
+  className: traefik
+  tls:
+    enabled: false
+    secretName: urumi-tls
+networkPolicies:
+  enabled: true

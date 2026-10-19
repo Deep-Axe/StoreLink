@@ -1,0 +1,7 @@
+# Local images are built and imported into k3d by scripts/local-up.sh.
+store:
+  host: store.urumi.localhost
+  publicUrl: http://store.urumi.localhost
+gateway:
+  host: dashboard.urumi.localhost
+  publicUrl: http://dashboard.urumi.localhost
