@@ -16,6 +16,7 @@ const kube = (...args: string[]) =>
     timeout: 180000,
     maxBuffer: 1024 * 1024,
   });
+console.log(`Failure check started at ${new Date().toISOString()}`);
 const origin = 'http://dashboard.urumi.localhost';
 const material = JSON.parse(
   readFileSync('.data/cluster-secrets.json', 'utf8'),
@@ -71,6 +72,11 @@ type Server = {
   status: string;
 };
 let client = new Client({ name: 'urumi-failure-check', version: '0.1.0' });
+const callTimeoutMs = Number(process.env.URUMI_SMOKE_MCP_TIMEOUT_MS ?? 20000);
+if (!Number.isFinite(callTimeoutMs) || callTimeoutMs < 20000)
+  throw new Error(
+    'URUMI_SMOKE_MCP_TIMEOUT_MS must be at least 20000 (gateway call budget plus margin)',
+  );
 const transport = () =>
   new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
     requestInit: { headers: { authorization: `Bearer ${key}` } },
@@ -78,8 +84,8 @@ const transport = () =>
       fetch(input, {
         ...init,
         signal: init?.signal
-          ? AbortSignal.any([init.signal, AbortSignal.timeout(5000)])
-          : AbortSignal.timeout(5000),
+          ? AbortSignal.any([init.signal, AbortSignal.timeout(callTimeoutMs)])
+          : AbortSignal.timeout(callTimeoutMs),
       }),
   });
 await until(async () => {
@@ -113,7 +119,16 @@ try {
     'urumi/component=operations-mcp',
     '--timeout=60s',
   );
+  const failureStarted = performance.now();
   assert.equal((await call('ops__get_status')).isError, true);
+  const failureMs = Math.round(performance.now() - failureStarted);
+  assert.ok(
+    failureMs < callTimeoutMs,
+    'Gateway must return its error before the client deadline',
+  );
+  console.log(
+    `Dead upstream returned a tool error after ${failureMs} ms (client budget ${callTimeoutMs} ms).`,
+  );
   assert.ok(!(await call('time__get_status')).isError);
   const servers = await api<Server[]>('/servers');
   assert.equal(
