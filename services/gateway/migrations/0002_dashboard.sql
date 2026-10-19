@@ -1,0 +1,43 @@
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS user_email_unique ON users (email);
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS label TEXT NOT NULL DEFAULT 'Gateway key';
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  digest TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS invitations (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  digest TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ,
+  created_by TEXT NOT NULL REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS upstream_servers (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  url TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  has_credential BOOLEAN NOT NULL DEFAULT false,
+  revision INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(team_id,slug)
+);
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  team_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  messages JSONB NOT NULL DEFAULT '[]',
+  input_tokens BIGINT NOT NULL DEFAULT 0,
+  output_tokens BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS conversations_owner ON conversations (user_id,updated_at DESC);
+CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY,value TEXT NOT NULL);
