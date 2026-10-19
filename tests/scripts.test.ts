@@ -19,3 +19,53 @@ test('kubectl uses an override, an executable local install, or PATH in that ord
     '/custom/kubectl',
   );
 });
+
+test('shared cluster lock rejects an overlapping agent and releases after completion', async () => {
+  const { spawn, spawnSync } = await import('node:child_process');
+  const args = [
+    'scripts/with-cluster-lock.ts',
+    '--',
+    process.execPath,
+    '-e',
+    'console.log("held");setTimeout(()=>{},1200)',
+  ];
+  const first = spawn(process.execPath, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const done = new Promise<number | null>((resolve) =>
+    first.once('exit', resolve),
+  );
+  await new Promise<void>((resolve, reject) => {
+    first.stdout.once('data', () => resolve());
+    first.once('exit', (code) => {
+      if (code) reject(new Error(`Lock owner failed: ${code}`));
+    });
+    first.once('error', reject);
+  });
+  const blocked = spawnSync(
+    process.execPath,
+    [
+      'scripts/with-cluster-lock.ts',
+      '--',
+      process.execPath,
+      '-e',
+      'process.exit(0)',
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.equal(blocked.status, 73);
+  assert.match(blocked.stderr, /Cluster busy/);
+  assert.equal(await done, 0);
+  const released = spawnSync(
+    process.execPath,
+    [
+      'scripts/with-cluster-lock.ts',
+      '--',
+      process.execPath,
+      '-e',
+      'process.exit(0)',
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.equal(released.status, 0);
+});

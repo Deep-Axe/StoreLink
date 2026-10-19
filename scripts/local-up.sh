@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ -z "${STORELINK_CLUSTER_LOCK:-}" ]]; then
+  exec node scripts/with-cluster-lock.ts -- bash scripts/local-up.sh "$@"
+fi
 mkdir -p .data
 export KUBECONFIG="$PWD/.data/kubeconfig"
 URUMI_KUBECTL="$(node scripts/resolve-kubectl.ts)"

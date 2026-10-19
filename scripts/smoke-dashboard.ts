@@ -1,3 +1,4 @@
+import { acquireClusterLock } from './lib/cluster-lock.ts';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -6,6 +7,8 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+acquireClusterLock();
 
 const origin =
   process.env.URUMI_DASHBOARD_URL ?? 'http://dashboard.urumi.localhost';

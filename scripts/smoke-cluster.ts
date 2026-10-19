@@ -1,9 +1,12 @@
+import { acquireClusterLock } from './lib/cluster-lock.ts';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { chromium } from '@playwright/test';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+
+acquireClusterLock();
 
 const material = JSON.parse(
   readFileSync('.data/cluster-secrets.json', 'utf8'),
