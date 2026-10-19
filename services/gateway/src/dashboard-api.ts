@@ -1,3 +1,5 @@
+import { ChatAdmission, ChatBusyError } from './chat-admission.ts';
+import type { ChatLimits } from './chat-admission.ts';
 import express from 'express';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import * as argon2 from 'argon2';
@@ -44,12 +46,13 @@ type Options = {
   origin: string;
   model?: Model;
   modelName: string;
+  chatLimits?: Partial<ChatLimits>;
 };
 export function dashboardApi(options: Options) {
   const { store, registry, gateway, pepper, origin } = options;
   const router = express.Router();
   const loginAttempts = new Map<string, { count: number; until: number }>();
-  const activeChatUsers = new Set<string>();
+  const chatAdmission = new ChatAdmission(options.chatLimits);
   const digest = (kind: string, value: string) =>
     hashApiKey(`${kind}:${value}`, pepper);
   const cookieName =
@@ -368,7 +371,6 @@ export function dashboardApi(options: Options) {
         'Chat needs an OpenAI API key configured by the operator',
       );
     const user = actor(res);
-    limiter(`chat:${user.userId}`, 15, 60 * 60 * 1000);
     const input = z
       .object({
         conversationId: z.string().max(100).optional(),
@@ -379,21 +381,23 @@ export function dashboardApi(options: Options) {
           .max(8000),
       })
       .parse(req.body);
-    if (activeChatUsers.has(user.userId) || activeChatUsers.size >= 4)
-      throw new HttpError(429, 'Wait for the current answer to finish');
-    activeChatUsers.add(user.userId);
+    const id = input.conversationId ?? randomUUID();
+    let messages = [];
+    if (input.conversationId) {
+      const found = await store.pool.query(
+        'SELECT messages FROM conversations WHERE id=$1 AND user_id=$2 AND team_id=$3',
+        [id, user.userId, user.teamId],
+      );
+      if (!found.rows[0]) throw new HttpError(404, 'Unknown conversation');
+      messages = found.rows[0].messages;
+    }
+    validateChatInput(messages, input.message);
+    const release = chatAdmission.acquire(
+      user.userId,
+      user.teamId,
+      input.conversationId,
+    );
     try {
-      const id = input.conversationId ?? randomUUID();
-      let messages = [];
-      if (input.conversationId) {
-        const found = await store.pool.query(
-          'SELECT messages FROM conversations WHERE id=$1 AND user_id=$2 AND team_id=$3',
-          [id, user.userId, user.teamId],
-        );
-        if (!found.rows[0]) throw new HttpError(404, 'Unknown conversation');
-        messages = found.rows[0].messages;
-      }
-      validateChatInput(messages, input.message);
       const result = await runChat({
         gateway,
         actor: user,
@@ -443,7 +447,7 @@ export function dashboardApi(options: Options) {
         outputTokens: result.outputTokens,
       });
     } finally {
-      activeChatUsers.delete(user.userId);
+      release();
     }
   });
   router.use(
@@ -459,6 +463,8 @@ export function dashboardApi(options: Options) {
         error instanceof CredentialInputError
       )
         res.status(400).json({ error: error.message });
+      else if (error instanceof ChatBusyError)
+        res.status(429).json({ error: error.message });
       else if (error instanceof HttpError)
         res.status(error.status).json({ error: error.message });
       else if (error instanceof z.ZodError)

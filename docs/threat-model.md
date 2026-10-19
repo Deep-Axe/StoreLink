@@ -24,7 +24,7 @@ Those measures do not prove resistance to prompt injection. A malicious integrat
 
 Members share enabled tool privileges and can modify shared commerce data or consume team model credits. They cannot administer connections/members, revoke another member’s key, or read another user’s conversations or personal audit view. Admins can issue/revoke team keys and disable member access. Concurrent commerce mutations use WooCommerce’s behavior; there is no per-member transaction isolation beyond authorization/auditing.
 
-Owner/team predicates protect object access; invitation acceptance is transactional and single-use. CSRF tokens, strict cookies, origin/Host checks, CSP, input bounds and throttling protect browser routes. Rate limits and four concurrent chat users bound basic abuse, but are in-memory and reset on restart; production needs ingress/shared limits. Login has no SSO, MFA, password recovery or email delivery in this release.
+Owner/team predicates protect object access; invitation acceptance is transactional and single-use. CSRF tokens, strict cookies, origin/Host checks, CSP, input bounds and throttling protect browser routes. Configurable hourly, per-user, per-team and global chat limits bound basic abuse, but are in-memory and reset on restart; production needs ingress/shared limits. Login has no SSO, MFA, password recovery or email delivery in this release.
 
 ## Cluster, transport and recovery
 

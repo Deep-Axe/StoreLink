@@ -5,6 +5,11 @@ upstreamSecretName: urumi-upstream-credentials
 chat:
   enabled: false
   model: gpt-6-luna
+  limits:
+    perUserHour: 15
+    perUserConcurrent: 1
+    perTeamConcurrent: 4
+    globalConcurrent: 16
 images:
   app: urumi-app:0.1.0-dev
   store: urumi-wordpress:0.1.0-dev

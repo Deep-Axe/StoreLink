@@ -8,9 +8,14 @@ import { hashApiKey } from '../packages/shared/src/api-keys.ts';
 import type { PostgresStore } from '../services/gateway/src/postgres-store.ts';
 import type { Registry } from '../services/gateway/src/registry.ts';
 import type { Gateway } from '../services/gateway/src/gateway.ts';
+import type { ChatLimits } from '../services/gateway/src/chat-admission.ts';
 import type { Model } from '../services/gateway/src/chat.ts';
 
-async function fixture(t: { after: (fn: () => void) => void }, model: Model) {
+async function fixture(
+  t: { after: (fn: () => void) => void },
+  model: Model,
+  chatLimits?: Partial<ChatLimits>,
+) {
   const writes: { sql: string; values: unknown[] }[] = [];
   const pepper = Buffer.alloc(32, 1),
     token = 'a'.repeat(43);
@@ -60,6 +65,7 @@ async function fixture(t: { after: (fn: () => void) => void }, model: Model) {
       origin,
       model,
       modelName: 'test',
+      chatLimits,
     }),
   );
   return {
@@ -131,4 +137,14 @@ test('early provider rejection is non-200 and creates no conversation; successfu
   assert.ok(JSON.parse(String(f.writes[0].values[4])).length >= 2);
   await f.post({ message: 'again', conversationId: 'owned' });
   assert.match(f.writes[1].sql, /WHERE id=\$4 AND user_id=\$5 AND team_id=\$6/);
+});
+
+test('invalid messages do not spend the accepted-chat quota', async (t) => {
+  const f = await fixture(t, async () => ({ output: [], output_text: 'ok' }), {
+    perUserHour: 1,
+  });
+  for (let i = 0; i < 17; i++)
+    assert.equal((await f.post({ message: '  ' })).status, 400);
+  assert.equal((await f.post({ message: 'valid' })).status, 200);
+  assert.equal((await f.post({ message: 'valid again' })).status, 429);
 });
