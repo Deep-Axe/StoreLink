@@ -199,13 +199,22 @@ try {
     'deployment/urumi-wordpress',
     '--timeout=120s',
   );
-  const order = await call('woo__get_order', { order_id: evidence.orderId });
-  assert.ok(!order.isError);
-  assert.ok(
-    order.content.some(
-      (item) =>
-        item.type === 'text' && JSON.parse(item.text).id === evidence.orderId,
-    ),
+  // Readiness probes use SHORTINIT; service endpoint propagation and full Woo boot
+  // can lag behind pod Ready. Only this read-only recovery probe may be repeated.
+  let recoveryReads = 0;
+  await until(async () => {
+    recoveryReads++;
+    const order = await call('woo__get_order', { order_id: evidence.orderId });
+    return (
+      !order.isError &&
+      order.content.some(
+        (item) =>
+          item.type === 'text' && JSON.parse(item.text).id === evidence.orderId,
+      )
+    );
+  }, 60000);
+  console.log(
+    `Read-only order recovery probe completed after ${recoveryReads} attempt(s).`,
   );
   console.log(
     `WordPress replacement retained product/order data, including order ${evidence.orderId}.`,
