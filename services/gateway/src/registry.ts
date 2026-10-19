@@ -6,7 +6,9 @@ import { upstreamClient } from './upstream.ts';
 import type { Credential, CredentialStore } from './credentials.ts';
 import { validateCredential } from './credentials.ts';
 
-export class RegistryInputError extends Error {}
+import { UpstreamPolicy } from './upstream-policy.ts';
+export { RegistryInputError } from './upstream-policy.ts';
+import { RegistryInputError } from './upstream-policy.ts';
 
 type Row = {
   id: string;
@@ -26,7 +28,7 @@ export class Registry {
   store: PostgresStore;
   gateway: Gateway;
   secrets: CredentialStore;
-  origins: Set<string>;
+  policy: UpstreamPolicy;
   queue: Promise<unknown> = Promise.resolve();
   locked<T>(work: () => Promise<T>): Promise<T> {
     const result = this.queue.then(work);
@@ -44,27 +46,10 @@ export class Registry {
     this.store = store;
     this.gateway = gateway;
     this.secrets = secrets;
-    this.origins = new Set(origins);
+    this.policy = new UpstreamPolicy(origins);
   }
   validateUrl(value: string): string {
-    let url: URL;
-    try {
-      url = new URL(value);
-    } catch {
-      throw new RegistryInputError('Invalid upstream URL');
-    }
-    if (
-      !this.origins.has(url.origin) ||
-      !['http:', 'https:'].includes(url.protocol) ||
-      url.username ||
-      url.password ||
-      url.hash ||
-      url.search
-    )
-      throw new RegistryInputError(
-        'Upstream origin must be in the deployment allowlist; credentials belong in the credential field',
-      );
-    return url.toString();
+    return this.policy.validate(value).toString();
   }
   async seed(
     teamId: string,
@@ -113,6 +98,8 @@ export class Registry {
         const client = upstreamClient(
           new URL(this.validateUrl(row.url)),
           credential ?? '',
+          undefined,
+          this.policy.connectionOptions(row.url),
         );
         this.clients.set(row.id, client);
         this.gateway.register({
@@ -203,7 +190,7 @@ export class Registry {
     if (actor.role !== 'admin') throw new Error('Administrator required');
     if (!/^[a-z][a-z0-9_-]{0,15}$/.test(input.slug))
       throw new RegistryInputError('Use a short lowercase server slug');
-    const url = this.validateUrl(input.url);
+    const url = (await this.policy.check(input.url)).toString();
     const id = input.id ?? randomUUID();
     if (input.id) {
       const found = await this.store.pool.query(
