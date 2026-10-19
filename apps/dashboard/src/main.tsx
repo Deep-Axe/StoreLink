@@ -73,6 +73,18 @@ type Conversation = {
   input_tokens: string;
   output_tokens: string;
 };
+class ApiError extends Error {
+  result: { id?: string; text?: string; activity?: Activity[] };
+  constructor(result: {
+    error?: string;
+    id?: string;
+    text?: string;
+    activity?: Activity[];
+  }) {
+    super(result.error ?? 'Request failed');
+    this.result = result;
+  }
+}
 let csrf = '';
 async function api<T>(
   path: string,
@@ -85,7 +97,7 @@ async function api<T>(
     body: body ? JSON.stringify(body) : undefined,
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? 'Request failed');
+  if (!response.ok) throw new ApiError(result);
   return result;
 }
 const date = (value?: string | null) =>
@@ -907,16 +919,32 @@ function Chat({ me, run }: { me: Me; run: Run }) {
     setBusy(true);
     try {
       await run(async () => {
-        const result = await api<{
-          id: string;
-          text: string;
-          activity: Activity[];
-        }>('/chat', { conversationId: id, message });
-        setId(result.id);
-        setMessages((previous) => [
-          ...previous,
-          { role: 'assistant', text: result.text, activity: result.activity },
-        ]);
+        try {
+          const result = await api<{
+            id: string;
+            text: string;
+            activity: Activity[];
+          }>('/chat', { conversationId: id, message });
+          setId(result.id);
+          setMessages((previous) => [
+            ...previous,
+            { role: 'assistant', text: result.text, activity: result.activity },
+          ]);
+        } catch (error) {
+          if (error instanceof ApiError) {
+            if (error.result.id) setId(error.result.id);
+            setMessages((previous) => [
+              ...previous,
+              {
+                role: 'assistant',
+                text: error.result.text ?? error.message,
+                activity: error.result.activity ?? [],
+              },
+            ]);
+          }
+          await load();
+          throw error;
+        }
         await load();
       });
     } finally {

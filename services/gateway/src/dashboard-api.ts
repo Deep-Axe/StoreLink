@@ -418,7 +418,9 @@ export function dashboardApi(options: Options) {
           user.teamId,
         ],
       );
-      res.json({
+      res.status(result.failure?.status ?? 200).json({
+        error: result.failure ? result.text : undefined,
+        failure: result.failure,
         id,
         text: result.text,
         activity: result.activity,

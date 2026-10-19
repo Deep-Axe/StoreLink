@@ -1,3 +1,5 @@
+import { chatFailure, chatErrorEvent } from './chat-errors.ts';
+import type { ChatFailure } from './chat-errors.ts';
 import OpenAI from 'openai';
 import type {
   ResponseCreateParamsNonStreaming,
@@ -23,6 +25,7 @@ export type ToolActivity = {
   result: string;
 };
 export type ChatResult = {
+  failure?: ChatFailure;
   messages: ResponseInputItem[];
   text: string;
   activity: ToolActivity[];
@@ -65,6 +68,7 @@ export async function runChat(options: {
   messages: ResponseInputItem[];
   message: string;
   signal?: AbortSignal;
+  logError?: (event: ReturnType<typeof chatErrorEvent>) => void;
 }): Promise<ChatResult> {
   validateChatInput(options.messages, options.message);
   const messages: ResponseInputItem[] = [
@@ -80,6 +84,7 @@ export async function runChat(options: {
     : AbortSignal.timeout(120000);
   let text =
     'The turn reached its tool limit. Review the tool activity before continuing.';
+  let failure: ChatFailure | undefined;
   try {
     for (let round = 0; round < 8; round++) {
       signal.throwIfAborted();
@@ -159,9 +164,16 @@ export async function runChat(options: {
       }
       if (toolCalls >= 20) break;
     }
-  } catch {
+  } catch (error) {
+    failure = chatFailure(error);
+    (options.logError ?? ((event) => console.error(JSON.stringify(event))))(
+      chatErrorEvent(error, failure),
+    );
     text =
-      'Chat could not finish. Check tool activity and audit history before repeating a store change.';
+      failure.message +
+      (activity.length
+        ? ' Review tool activity and audit history before repeating a store change; it may already have completed.'
+        : ' No tools ran.');
   }
   // A terminal message also makes interrupted tool turns readable in saved history.
   if (
@@ -173,5 +185,5 @@ export async function runChat(options: {
     )
   )
     messages.push({ role: 'assistant', content: text });
-  return { messages, text, activity, inputTokens, outputTokens };
+  return { messages, text, activity, inputTokens, outputTokens, failure };
 }
