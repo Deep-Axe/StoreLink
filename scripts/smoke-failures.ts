@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { kubectlCommand } from './lib/kubectl.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const command = promisify(execFile),
-  kubectl = process.env.URUMI_KUBECTL ?? '.tools/bin/kubectl';
+  kubectl = kubectlCommand();
 const env = { ...process.env, KUBECONFIG: `${process.cwd()}/.data/kubeconfig` };
 const kube = (...args: string[]) =>
   command(kubectl, ['-n', 'urumi', ...args], {
