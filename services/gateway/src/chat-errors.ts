@@ -4,6 +4,7 @@ export type ChatFailure = { code: string; status: number; message: string };
 export function chatFailure(error: unknown): ChatFailure {
   if (
     error instanceof OpenAI.APIConnectionTimeoutError ||
+    error instanceof OpenAI.APIUserAbortError ||
     (error instanceof Error &&
       ['TimeoutError', 'AbortError'].includes(error.name))
   )
@@ -54,7 +55,23 @@ export function chatFailure(error: unknown): ChatFailure {
 export function chatErrorEvent(error: unknown, failure: ChatFailure) {
   // Deliberately exclude messages, bodies, headers, prompts and arbitrary provider codes.
   const requestId = error instanceof OpenAI.APIError ? error.requestID : null;
+  const providerCode =
+    error instanceof OpenAI.APIError &&
+    [
+      'invalid_api_key',
+      'model_not_found',
+      'insufficient_quota',
+      'credit_balance_exhausted',
+      'organization_spend_limit_exceeded',
+      'project_spend_limit_exceeded',
+      'organization_usage_limit_exceeded',
+      'rate_limit_exceeded',
+      'invalid_request_error',
+    ].includes(error.code ?? '')
+      ? error.code
+      : null;
   return {
+    providerCode,
     event: 'chat_model_error',
     code: failure.code,
     status: error instanceof OpenAI.APIError ? (error.status ?? null) : null,
