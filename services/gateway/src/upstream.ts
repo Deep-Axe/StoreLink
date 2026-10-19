@@ -1,3 +1,5 @@
+import { Agent } from 'undici';
+import type { LookupFunction } from 'node:net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { ToolClient } from './gateway.ts';
@@ -9,6 +11,7 @@ export function upstreamClient(
   url: URL,
   serviceToken: string | Credential,
   fetcher?: typeof fetch,
+  options: { connectTimeoutMs?: number; lookup?: LookupFunction } = {},
 ): ToolClient & { close: () => Promise<void> } {
   if (
     !['http:', 'https:'].includes(url.protocol) ||
@@ -17,6 +20,22 @@ export function upstreamClient(
     url.hash
   )
     throw new Error('Invalid MCP upstream URL');
+  const dispatcher = fetcher
+    ? undefined
+    : new Agent({
+        connect: {
+          timeout: options.connectTimeoutMs ?? 2000,
+          ...(options.lookup ? { lookup: options.lookup } : {}),
+        },
+        connections: 2,
+        pipelining: 1,
+      });
+  const upstreamFetch: typeof fetch =
+    fetcher ??
+    ((input, init) => {
+      const settings = { ...init, dispatcher };
+      return fetch(input, settings);
+    });
   let connection: Promise<Client> | undefined;
   const credential =
     typeof serviceToken === 'string'
@@ -36,7 +55,7 @@ export function upstreamClient(
                 : {},
               redirect: 'error',
             },
-            fetch: fetcher,
+            fetch: upstreamFetch,
             reconnectionOptions: {
               maxRetries: 0,
               initialReconnectionDelay: 1000,
@@ -70,6 +89,7 @@ export function upstreamClient(
         await client?.close();
       }
       connection = undefined;
+      await dispatcher?.destroy();
     },
   };
 }

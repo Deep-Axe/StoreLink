@@ -4,10 +4,9 @@ import { execFileSync } from 'node:child_process';
 import { generateApiKey } from '../packages/shared/src/api-keys.ts';
 import { parseEnv } from 'node:util';
 import { join } from 'node:path';
+import { kubectlCommand } from './lib/kubectl.ts';
 
-const kubectl =
-  process.env.URUMI_KUBECTL ??
-  (existsSync('.tools/bin/kubectl') ? '.tools/bin/kubectl' : 'kubectl');
+const kubectl = kubectlCommand();
 const namespace = process.env.URUMI_NAMESPACE ?? 'urumi';
 const secretName = process.env.URUMI_SECRET_NAME ?? 'urumi-credentials';
 const run = (args: string[], input?: string) =>

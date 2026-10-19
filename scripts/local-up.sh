@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ -z "${STORELINK_CLUSTER_LOCK:-}" ]]; then
+  exec node scripts/with-cluster-lock.ts -- bash scripts/local-up.sh "$@"
+fi
 mkdir -p .data
 export KUBECONFIG="$PWD/.data/kubeconfig"
-export URUMI_KUBECTL="${URUMI_KUBECTL:-$PWD/.tools/bin/kubectl}"
+URUMI_KUBECTL="$(node scripts/resolve-kubectl.ts)"
+export URUMI_KUBECTL
+command -v "$URUMI_KUBECTL" >/dev/null || { echo "kubectl is unavailable: $URUMI_KUBECTL" >&2; exit 1; }
 if ! k3d cluster list -o json | python3 -c 'import json,sys;sys.exit(not any(c["name"]=="urumi" for c in json.load(sys.stdin)))'; then
   k3d cluster create urumi --servers 1 --agents 0 --servers-memory 4096m \
     --api-port 127.0.0.1:6550 --port '127.0.0.1:80:80@loadbalancer' --port '127.0.0.1:443:443@loadbalancer' \

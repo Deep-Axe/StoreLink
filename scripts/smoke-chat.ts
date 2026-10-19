@@ -1,3 +1,4 @@
+import { acquireClusterLock } from './lib/cluster-lock.ts';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -8,6 +9,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolActivity } from '../services/gateway/src/chat.ts';
+
+acquireClusterLock();
 
 // Explicit live integration script. It makes paid OpenAI calls and creates demo data.
 // Run: node --env-file=.env scripts/smoke-chat.ts
