@@ -394,11 +394,6 @@ export function dashboardApi(options: Options) {
         messages = found.rows[0].messages;
       }
       validateChatInput(messages, input.message);
-      if (!input.conversationId)
-        await store.pool.query(
-          'INSERT INTO conversations (id,user_id,team_id,title) VALUES ($1,$2,$3,$4)',
-          [id, user.userId, user.teamId, input.message.slice(0, 80)],
-        );
       const result = await runChat({
         gateway,
         actor: user,
@@ -407,21 +402,41 @@ export function dashboardApi(options: Options) {
         messages,
         message: input.message,
       });
-      await store.pool.query(
-        `UPDATE conversations SET messages=$1,input_tokens=input_tokens+$2,output_tokens=output_tokens+$3,updated_at=now() WHERE id=$4 AND user_id=$5 AND team_id=$6`,
-        [
-          JSON.stringify(result.messages),
-          result.inputTokens,
-          result.outputTokens,
-          id,
-          user.userId,
-          user.teamId,
-        ],
-      );
+      // A rejected/early failed turn must not create an empty conversation.
+      const persist =
+        !result.failure ||
+        result.activity.length > 0 ||
+        result.inputTokens > 0 ||
+        result.outputTokens > 0;
+      if (persist && !input.conversationId) {
+        await store.pool.query(
+          'INSERT INTO conversations (id,user_id,team_id,title,messages,input_tokens,output_tokens) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [
+            id,
+            user.userId,
+            user.teamId,
+            input.message.slice(0, 80),
+            JSON.stringify(result.messages),
+            result.inputTokens,
+            result.outputTokens,
+          ],
+        );
+      } else if (persist)
+        await store.pool.query(
+          `UPDATE conversations SET messages=$1,input_tokens=input_tokens+$2,output_tokens=output_tokens+$3,updated_at=now() WHERE id=$4 AND user_id=$5 AND team_id=$6`,
+          [
+            JSON.stringify(result.messages),
+            result.inputTokens,
+            result.outputTokens,
+            id,
+            user.userId,
+            user.teamId,
+          ],
+        );
       res.status(result.failure?.status ?? 200).json({
         error: result.failure ? result.text : undefined,
         failure: result.failure,
-        id,
+        id: persist || input.conversationId ? id : undefined,
         text: result.text,
         activity: result.activity,
         inputTokens: result.inputTokens,
