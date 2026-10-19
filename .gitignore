@@ -1,0 +1,61 @@
+# Dependencies and generated output
+node_modules/
+.cache/
+.tools/
+.data/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment files; only the empty example is publishable
+.env
+.env.*
+!.env.example
+.envrc
+
+# Credentials, local Kubernetes access, certificates and private values
+/secrets/
+/.secrets/
+/.credentials/
+.kube/
+kubeconfig
+kubeconfig.*
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.kdbx
+*.private.yaml
+*.private.yml
+*.private.json
+
+# Local databases and backups
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.sql.gz
+*.dump
+*.backup
+
+# Local assistant notes and original planning material
+/planning/
+/CLAUDE.md
+
+# Conventional local credential stores and secret manifests
+.netrc
+.pypirc
+.git-credentials
+.aws/
+id_rsa
+id_ed25519
+credentials.json
+credentials.*.json
+service-account*.json
+*.secret.yaml
+*.secret.yml
+*.secret.json

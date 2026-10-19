@@ -1,0 +1,7 @@
+planning/
+node_modules/
+.tools/
+.cache/
+.data/
+package-lock.json
+charts/**/templates/

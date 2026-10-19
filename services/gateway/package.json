@@ -1,0 +1,12 @@
+{
+  "name": "@urumi/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "argon2": "0.45.1",
+    "drizzle-orm": "0.45.4",
+    "openai": "7.39.0",
+    "pg": "8.23.1"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "lib": ["ES2023", "DOM"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "types": ["node"],
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "packages/**/*.ts",
+    "services/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "apps/**/*.ts",
+    "apps/**/*.tsx"
+  ]
+}
