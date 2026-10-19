@@ -6,7 +6,7 @@ import type { ResponseOutputItem } from 'openai/resources/responses/responses';
 import { generateApiKey, hashApiKey } from '../packages/shared/src/api-keys.ts';
 import { Gateway } from '../services/gateway/src/gateway.ts';
 import { DevelopmentStore } from '../services/gateway/src/store.ts';
-import { runChat } from '../services/gateway/src/chat.ts';
+import { runChat, ChatInputError } from '../services/gateway/src/chat.ts';
 import type { Model, ModelResponse } from '../services/gateway/src/chat.ts';
 import { dayWindow } from '../services/time-mcp/src/server.ts';
 
@@ -189,4 +189,34 @@ test('store day windows respect local midnight, DST and exclusive second-precisi
   );
   assert.throws(() => dayWindow('invalid/timezone', '2026-10-19'));
   assert.throws(() => dayWindow('UTC', '2026-02-30'));
+});
+
+test('chat rejects blank input and oversized context before model or tool execution', async (t) => {
+  const { store, gateway, actor } = await setup();
+  t.after(() => store.close());
+  for (const [message, messages] of [
+    ['   ', []],
+    ['x'.repeat(8001), []],
+    [
+      'continue',
+      Array.from({ length: 301 }, () => ({ role: 'user' as const, content: 'old' })),
+    ],
+    ['continue', [{ role: 'user', content: 'x'.repeat(196609) }]],
+  ] as const) {
+    await assert.rejects(
+      () =>
+        runChat({
+          gateway,
+          actor,
+          model: async () => {
+            throw new Error('Model must not run');
+          },
+          modelName: 'test',
+          message,
+          messages: [...messages],
+        }),
+      ChatInputError,
+    );
+  }
+  assert.equal(store.auditRows().length, 0);
 });

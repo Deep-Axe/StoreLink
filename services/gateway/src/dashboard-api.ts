@@ -12,7 +12,7 @@ import type { Registry } from './registry.ts';
 import { RegistryInputError } from './registry.ts';
 import { CredentialInputError } from './credentials.ts';
 import type { Gateway } from './gateway.ts';
-import { runChat } from './chat.ts';
+import { runChat, ChatInputError, validateChatInput } from './chat.ts';
 import type { Model } from './chat.ts';
 
 class HttpError extends Error {
@@ -372,7 +372,11 @@ export function dashboardApi(options: Options) {
     const input = z
       .object({
         conversationId: z.string().max(100).optional(),
-        message: z.string().min(1).max(8000),
+        message: z
+          .string()
+          .trim()
+          .min(1, 'Message must contain 1–8000 characters')
+          .max(8000),
       })
       .parse(req.body);
     if (activeChatUsers.has(user.userId) || activeChatUsers.size >= 4)
@@ -388,7 +392,9 @@ export function dashboardApi(options: Options) {
         );
         if (!found.rows[0]) throw new HttpError(404, 'Unknown conversation');
         messages = found.rows[0].messages;
-      } else
+      }
+      validateChatInput(messages, input.message);
+      if (!input.conversationId)
         await store.pool.query(
           'INSERT INTO conversations (id,user_id,team_id,title) VALUES ($1,$2,$3,$4)',
           [id, user.userId, user.teamId, input.message.slice(0, 80)],
@@ -431,6 +437,7 @@ export function dashboardApi(options: Options) {
       _next: express.NextFunction,
     ) => {
       if (
+        error instanceof ChatInputError ||
         error instanceof RegistryInputError ||
         error instanceof CredentialInputError
       )
@@ -439,7 +446,10 @@ export function dashboardApi(options: Options) {
         res.status(error.status).json({ error: error.message });
       else if (error instanceof z.ZodError)
         res.status(400).json({
-          error: 'Check the supplied fields',
+          error:
+            error.issues[0]?.path[0] === 'message'
+              ? 'Message must contain 1–8000 non-whitespace characters'
+              : 'Check the supplied fields',
           fields: error.issues.map((issue) => issue.path.join('.')),
         });
       else if (

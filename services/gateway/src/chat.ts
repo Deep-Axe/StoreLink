@@ -43,6 +43,20 @@ For today's orders, first get the store timezone day window from the time server
 Prices are decimal strings. Include currency when known. Keep answers concise and mention which operations failed.
 You have no upstream credentials and must not ask for them. Tools can change between rounds.`;
 
+export class ChatInputError extends Error {}
+
+export function validateChatInput(
+  messages: ResponseInputItem[],
+  message: string,
+): void {
+  if (message.length > 8000 || !message.trim())
+    throw new ChatInputError('Message must contain 1–8000 characters');
+  if (JSON.stringify(messages).length > 196608 || messages.length > 300)
+    throw new ChatInputError(
+      'Start a new conversation; this one reached its context limit',
+    );
+}
+
 export async function runChat(options: {
   gateway: Pick<Gateway, 'listTools' | 'call'>;
   actor: Identity;
@@ -52,15 +66,7 @@ export async function runChat(options: {
   message: string;
   signal?: AbortSignal;
 }): Promise<ChatResult> {
-  if (options.message.length > 8000 || !options.message.trim())
-    throw new Error('Message must contain 1–8000 characters');
-  if (
-    JSON.stringify(options.messages).length > 196608 ||
-    options.messages.length > 300
-  )
-    throw new Error(
-      'Start a new conversation; this one reached its context limit',
-    );
+  validateChatInput(options.messages, options.message);
   const messages: ResponseInputItem[] = [
     ...options.messages,
     { role: 'user', content: options.message },
