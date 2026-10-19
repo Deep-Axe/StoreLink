@@ -36,4 +36,4 @@ Audits exclude full tool arguments and order contact data; HTTP logs contain gen
 
 ## Verification limits
 
-Automated/cluster checks cover boundaries and common failure paths; they are not a security audit. See [verification](verification.md). Live model prompts and a public HTTPS VPS deployment remain outstanding. Multi-store provisioning/isolation is deferred.
+Automated/cluster checks cover boundaries and common failure paths; they are not a security audit. See [verification](verification.md). The live model demonstration passed; a public HTTPS VPS deployment remains unverified. Multi-store provisioning/isolation is deferred.

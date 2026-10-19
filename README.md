@@ -2,7 +2,7 @@
 
 A WooCommerce store and team MCP gateway on Kubernetes. Connect upstream servers once, then use their tools from the React dashboard or one authenticated MCP endpoint.
 
-The local store, dashboard, PostgreSQL repository and three MCP servers are implemented. Real COD checkout and MCP store operations have passed. Chat has a bounded OpenAI Responses tool loop with deterministic tests; live model acceptance is pending an API key. See [verification](docs/verification.md) for the exact evidence and remaining work, and [project scope](docs/project-plan.md) for requirements and completion gates.
+The local store, dashboard, PostgreSQL repository and three MCP servers are implemented. Real COD checkout and MCP store operations have passed. Chat has a bounded OpenAI Responses tool loop with deterministic tests and a completed live two-user demonstration using `gpt-6-luna`. See [verification](docs/verification.md) for the exact evidence and remaining work, and [project scope](docs/project-plan.md) for requirements and completion gates.
 
 ## Local setup
 
@@ -68,7 +68,7 @@ For a terminal-based external agent using the same inexpensive OpenAI model, sav
 URUMI_GATEWAY_KEY_FILE=.data/member-key node --env-file=.env scripts/external-chat.ts "Use the time service to find today, then list today's store orders."
 ```
 
-Its MCP configuration contains only the gateway URL and user B’s key; its separate OpenAI key belongs in `.env`. The command prints called tool names and token usage. This real-model flow remains pending an API key.
+Its MCP configuration contains only the gateway URL and user B’s key; its separate OpenAI key belongs in `.env`. The command prints called tool names and token usage; add `--json` before the prompt for structured results. This external-agent flow passed the real-model acceptance check.
 
 ## Use dashboard chat
 
@@ -82,7 +82,9 @@ OPENAI_API_KEY=your-key-here
 scripts/local-up.sh
 ```
 
-Setup copies the key into a Kubernetes Secret and enables chat. Set the model with Helm’s `chat.model` (default `gpt-6-luna`); account/model access still needs a live check. The browser never receives this key. OpenAI API usage is the only paid dependency for the local chat; all infrastructure runs locally.
+Setup copies the key into a Kubernetes Secret and enables chat. Set the model with Helm’s `chat.model` (default `gpt-6-luna`); access to this model was verified with the owner’s key. The browser never receives this key. OpenAI API usage is the only paid dependency for the local chat; all infrastructure runs locally.
+
+The blank `WOO_CONSUMER_KEY_FILE` and `WOO_CONSUMER_SECRET_FILE` entries in `.env.example` are optional file paths for running the adapter outside Kubernetes. Cluster bootstrap generates the WooCommerce REST consumer key/secret and mounts them at `/secrets/woo-consumer-key` and `/secrets/woo-consumer-secret` in the adapter pod. Leave those local entries blank when using `scripts/local-up.sh`.
 
 Try “Create a product named Team Mug priced at 149.00”, place an order for it, then ask “Use the store timezone to tell me what orders came in today.” For multiple sources, ask “Compare today’s order total with our operations sales target.” Tool activity appears under the answer, and **Activity** shows the attributed audit records. Conversations and token usage are saved per user. A turn is limited to eight model rounds, twenty tool calls, and a 120-second deadline; chat is limited to fifteen turns per user per hour.
 
@@ -134,10 +136,11 @@ Run cluster checks sequentially; the failure check deliberately interrupts workl
 node scripts/smoke-cluster.ts       # Creates a product and a real COD order
 node scripts/smoke-dashboard.ts     # Two browser users, invitations, CRUD and key controls
 node scripts/smoke-failures.ts      # Outage/recovery and replacement persistence
+node --env-file=.env scripts/smoke-chat.ts # Paid live-model/browser acceptance; creates demo data
 ```
 
 Browser checks use installed Google Chrome through Playwright. `npm run dev:dashboard` starts Vite and proxies API requests to the local deployed gateway (override with `URUMI_DEV_BACKEND`); use the deployed dashboard for final cookie/origin integration checks. Production PostgreSQL is required for dashboard/auth/chat; the standalone SQLite backend is only a gateway test/development slice.
 
 Source: `apps/dashboard/`, `services/gateway/` (including chat), `services/woocommerce-mcp/`, `services/time-mcp/`, `services/operations-mcp/`, `packages/shared/`, `charts/`, `scripts/`, `tests/`.
 
-Extras implemented: owner-scoped conversations/token accounting, team-scoped authorization, expiring single-use invitations, CSRF/throttling, minimized order results, persisted connection history and a credential-origin allowlist. See [verification](docs/verification.md). Multi-store provisioning is deferred until the real two-user model demonstration passes.
+Extras implemented: owner-scoped conversations/token accounting, team-scoped authorization, expiring single-use invitations, CSRF/throttling, minimized order results, persisted connection history and a credential-origin allowlist. See [verification](docs/verification.md). Multi-store provisioning remains an optional extension and is not implemented.

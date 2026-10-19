@@ -14,7 +14,7 @@ Deliver a reproducible single-store WooCommerce platform on Kubernetes where an 
 | Administration | Server CRUD/static credentials, status and tools                                  | React/API and PostgreSQL registry implemented; browser CRUD checked        |
 | Identity       | Admin/member, invitations, per-user hashed/revocable keys                         | Implemented; two-user browser/client checks passed                         |
 | Auditing       | Attributed attempts/outcomes visible in dashboard                                 | Implemented, including revoked-key denials and uncertain writes            |
-| Chat           | Real LLM tool calls through the gateway as logged-in user, visible activity       | Implemented and scripted-loop tested; real OpenAI acceptance pending       |
+| Chat           | Real LLM tool calls through the gateway as logged-in user, visible activity       | Scripted tests and real dashboard/external OpenAI acceptance passed        |
 | Deployment     | Same Helm charts, local/production values, probes/resources/Secrets/PVCs          | Local upgrades and production render/lint checked; public VPS not deployed |
 | Documentation  | Setup/demo, architecture/tradeoffs, threats, extras inventory                     | README and notes under `docs/`                                             |
 
@@ -24,15 +24,13 @@ Use TypeScript/Node 24, Express, the official MCP SDK, React/Vite, application P
 
 Bound discovery/calls/results/model rounds, preserve mutation uncertainty without retries, and fail closed before unaudited execution. Enforce team/owner predicates, role checks, session/CSRF validation and immediate revocation/disable. Configure the store timezone explicitly and use UTC order filters with decimal-string prices. Keep local and production differences in values/Secrets.
 
-Tests combine deterministic protocol/security/tool-loop tests with real SDK, browser, store and pod replacement checks. No numerical coverage requirement is imposed. CI runs type checking, tests, dashboard build, formatting and Helm validation; it has not yet run on a remote CI service.
+Tests combine deterministic protocol/security/tool-loop tests with real SDK, browser, store and pod replacement checks. No numerical coverage requirement is imposed. CI runs type checking, tests, dashboard build, formatting and Helm validation; the initial GitHub Actions run passed.
 
-## Remaining sequence
+## Acceptance status and optional next work
 
-1. Supply an OpenAI key; check account/model access using the configurable inexpensive model (`gpt-6-luna` by default).
-2. As user A, create a product in dashboard chat, manually order it, and ask for today’s orders. Verify tool activity, user attribution, saved conversation and usage.
-3. As user B, use an external MCP agent for the orders question and a multi-upstream prompt; repeat revocation/disable controls during the real model flow.
-4. Record that evidence in [verification](verification.md). Deploy public DNS/TLS and test backup restoration if a VPS deployment is desired.
-5. Attempt optional multi-store provisioning only after the mandatory model demonstration passes.
+The mandatory local two-user model demonstration passed with `gpt-6-luna`: dashboard product creation, browser order placement/admin confirmation, timezone-aware order queries, an external member’s multi-upstream prompt, disable/revocation controls, persisted history/token counts and audit attribution. See [verification](verification.md) for the evidence and exact client used.
+
+Public VPS deployment still requires DNS/TLS and backup/restore verification. Multi-store provisioning is an optional extension, not implemented. No further model-provider setup is needed for the current local installation.
 
 ## Services and cost
 

@@ -45,4 +45,4 @@ No further host packages are needed for the implemented core. The `urumi` k3d cl
 
 WordPress/WooCommerce, MariaDB, PostgreSQL, the gateway/dashboard and three MCP services are deployed. Real COD checkout, OAuth REST calls, persisted audits and browser access controls have passed. Native Argon2 and React production builds run inside the application images too. No host databases or Python virtual environment are needed.
 
-Live OpenAI requests still require an API key/account-access check; deterministic tool-loop tests do not establish real model acceptance. See [verification](verification.md) for current evidence and remaining gates. No paid services have been provisioned.
+The supplied OpenAI key/model access and the real dashboard/external-agent tool loop have now passed live acceptance. The key is in an ignored local file and a mounted Kubernetes Secret. See [verification](verification.md) for current evidence and remaining gates. No paid services have been provisioned.
