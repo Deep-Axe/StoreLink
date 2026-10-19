@@ -153,3 +153,5 @@ Browser checks use installed Google Chrome through Playwright. `npm run dev:dash
 Source: `apps/dashboard/`, `services/gateway/` (including chat), `services/woocommerce-mcp/`, `services/time-mcp/`, `services/operations-mcp/`, `packages/shared/`, `charts/`, `scripts/`, `tests/`.
 
 Extras implemented: owner-scoped conversations/token accounting, team-scoped authorization, expiring single-use invitations, CSRF/throttling, minimized order results, persisted connection history and a credential-origin allowlist. See [verification](docs/verification.md). Multi-store provisioning remains an optional extension and is not implemented.
+
+For parallel contributor/agent work, use separate Git worktrees and the shared-cluster lock described in [the agent workflow](docs/agent-workflow.md). Deploy and smoke scripts lock automatically; wrap manual cluster mutations and client demos with `node scripts/with-cluster-lock.ts -- <command>`. Preview scoped QA cleanup with `node scripts/cleanup-qa.ts`, then run it with `--apply` when appropriate. See [QA fixes and evidence](docs/bugfix-verification.md) for the stacked review branches and checks.

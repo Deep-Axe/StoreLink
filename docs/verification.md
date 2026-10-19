@@ -4,7 +4,7 @@ Verified locally on 2026-10-19 with k3d 5.9.0 / k3s 1.35.5, Helm 4.3.1, MCP SDK 
 
 ## Executed evidence
 
-- `npm test`: thirty tests cover routing/collisions, isolation, schema validation, audit failure, key revocation/attribution, actual SDK HTTP exchanges, OAuth canonical binding, uncertain mutations, bounded scripted Responses continuation and timezone/DST boundaries. Scripted model tests make no paid calls.
+- `npm test`: thirty-one tests cover routing/collisions, isolation, schema validation, audit failure, key revocation/attribution, actual SDK HTTP exchanges, OAuth canonical binding, uncertain mutations, bounded scripted Responses continuation and timezone/DST boundaries. Scripted model tests make no paid calls.
 - `scripts/local-up.sh`: repeated image builds and Helm upgrades completed; WordPress/WooCommerce bootstrap is idempotent and all long-running workloads become Ready.
 - `node scripts/smoke-cluster.ts`: real gateway → Woo MCP → OAuth REST product creation/listing, browser COD checkout, order listing/retrieval/status update. The initial recorded product/order IDs were 13/15; the final run created product 16/order 17, confirmed the order in WooCommerce admin, and retrieved it with time-service UTC day filters. PostgreSQL retained attributed audit entries. The script creates new demo data each run.
 - `node scripts/smoke-dashboard.ts`: real Chrome login as admin/member, three connected servers/nine tools, CSRF/origin denial, member administration denial, self-service key creation, duplicate-name calls, disable/re-enable, revocation in an existing client and attributed denials. Browser invitation acceptance, single-use enforcement, member key ownership and access removal passed. The extended check also passed connection add/edit/remove, credential replacement and denial of unapproved origins/unsafe credential headers.
@@ -33,6 +33,8 @@ The private evidence file is `.data/live-chat-evidence.json`; screenshot/logs ar
 The user-provided QA report from 2026-10-19 records a real Claude Code headless run using only the gateway URL and an invited member's key in MCP configuration. The reproducible command is in the README. Claude combined time, WooCommerce and operations tools: four orders totaling ₹596.00 against a ₹5,000 target. Audit rows 86–89 record the QA member's `time__get_day_window`, `ops__get_fulfillment_policy`, `woo__list_orders` and `time__get_status` calls. These figures are the report's snapshot, not a promise about future order totals.
 
 Disable checks used raw `tools/list` and stale-name calls. Claude's cached tool refresh was not verified. This stateless endpoint requires explicit catalog refresh/reconnection; it does not emit SSE list-change notifications. Disabled routes and revoked keys are enforced on every request regardless of client caching. Inspector supports the raw protocol checks; no separate Inspector UI run is claimed.
+
+See [QA fixes and review order](bugfix-verification.md) for the nine fixes, current regression checks and cleanup results.
 
 ## Remaining gates
 
