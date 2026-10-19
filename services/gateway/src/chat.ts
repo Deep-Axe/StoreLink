@@ -1,3 +1,5 @@
+import { chatFailure, chatErrorEvent } from './chat-errors.ts';
+import type { ChatFailure } from './chat-errors.ts';
 import OpenAI from 'openai';
 import type {
   ResponseCreateParamsNonStreaming,
@@ -23,6 +25,7 @@ export type ToolActivity = {
   result: string;
 };
 export type ChatResult = {
+  failure?: ChatFailure;
   messages: ResponseInputItem[];
   text: string;
   activity: ToolActivity[];
@@ -43,6 +46,20 @@ For today's orders, first get the store timezone day window from the time server
 Prices are decimal strings. Include currency when known. Keep answers concise and mention which operations failed.
 You have no upstream credentials and must not ask for them. Tools can change between rounds.`;
 
+export class ChatInputError extends Error {}
+
+export function validateChatInput(
+  messages: ResponseInputItem[],
+  message: string,
+): void {
+  if (message.length > 8000 || !message.trim())
+    throw new ChatInputError('Message must contain 1–8000 characters');
+  if (JSON.stringify(messages).length > 196608 || messages.length > 300)
+    throw new ChatInputError(
+      'Start a new conversation; this one reached its context limit',
+    );
+}
+
 export async function runChat(options: {
   gateway: Pick<Gateway, 'listTools' | 'call'>;
   actor: Identity;
@@ -51,16 +68,9 @@ export async function runChat(options: {
   messages: ResponseInputItem[];
   message: string;
   signal?: AbortSignal;
+  logError?: (event: ReturnType<typeof chatErrorEvent>) => void;
 }): Promise<ChatResult> {
-  if (options.message.length > 8000 || !options.message.trim())
-    throw new Error('Message must contain 1–8000 characters');
-  if (
-    JSON.stringify(options.messages).length > 196608 ||
-    options.messages.length > 300
-  )
-    throw new Error(
-      'Start a new conversation; this one reached its context limit',
-    );
+  validateChatInput(options.messages, options.message);
   const messages: ResponseInputItem[] = [
     ...options.messages,
     { role: 'user', content: options.message },
@@ -74,6 +84,7 @@ export async function runChat(options: {
     : AbortSignal.timeout(120000);
   let text =
     'The turn reached its tool limit. Review the tool activity before continuing.';
+  let failure: ChatFailure | undefined;
   try {
     for (let round = 0; round < 8; round++) {
       signal.throwIfAborted();
@@ -153,9 +164,16 @@ export async function runChat(options: {
       }
       if (toolCalls >= 20) break;
     }
-  } catch {
+  } catch (error) {
+    failure = chatFailure(error);
+    (options.logError ?? ((event) => console.error(JSON.stringify(event))))(
+      chatErrorEvent(error, failure),
+    );
     text =
-      'Chat could not finish. Check tool activity and audit history before repeating a store change.';
+      failure.message +
+      (activity.length
+        ? ' Review tool activity and audit history before repeating a store change; it may already have completed.'
+        : ' No tools ran.');
   }
   // A terminal message also makes interrupted tool turns readable in saved history.
   if (
@@ -167,5 +185,5 @@ export async function runChat(options: {
     )
   )
     messages.push({ role: 'assistant', content: text });
-  return { messages, text, activity, inputTokens, outputTokens };
+  return { messages, text, activity, inputTokens, outputTokens, failure };
 }

@@ -86,6 +86,12 @@ if (store instanceof PostgresStore) {
       origin,
       model,
       modelName: process.env.OPENAI_MODEL ?? 'gpt-6-luna',
+      chatLimits: {
+        perUserHour: Number(process.env.CHAT_PER_USER_HOUR ?? 15),
+        perUserConcurrent: Number(process.env.CHAT_PER_USER_CONCURRENT ?? 1),
+        perTeamConcurrent: Number(process.env.CHAT_PER_TEAM_CONCURRENT ?? 4),
+        globalConcurrent: Number(process.env.CHAT_GLOBAL_CONCURRENT ?? 16),
+      },
     }),
   );
   const dashboard = resolve('apps/dashboard/dist');

@@ -41,9 +41,11 @@ try {
     messages: [],
     message: prompt,
   });
+  if (result.failure) process.exitCode = 1;
   if (jsonOutput) {
     console.log(
       JSON.stringify({
+        failure: result.failure,
         text: result.text,
         activity: result.activity,
         inputTokens: result.inputTokens,

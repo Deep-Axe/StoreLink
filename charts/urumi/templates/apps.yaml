@@ -44,6 +44,10 @@ spec:
             - name: UPSTREAM_ALLOWED_ORIGINS
               value: {{ printf "http://%s-woo-mcp:3001,http://%s-time-mcp:3002,http://%s-operations-mcp:3003%s" (include "urumi.name" .) (include "urumi.name" .) (include "urumi.name" .) (ternary (printf ",%s" (join "," .Values.gateway.extraUpstreamOrigins)) "" (gt (len .Values.gateway.extraUpstreamOrigins) 0)) | quote }}
             - { name: OPENAI_MODEL, value: {{ .Values.chat.model | quote }} }
+            - { name: CHAT_PER_USER_HOUR, value: {{ .Values.chat.limits.perUserHour | quote }} }
+            - { name: CHAT_PER_USER_CONCURRENT, value: {{ .Values.chat.limits.perUserConcurrent | quote }} }
+            - { name: CHAT_PER_TEAM_CONCURRENT, value: {{ .Values.chat.limits.perTeamConcurrent | quote }} }
+            - { name: CHAT_GLOBAL_CONCURRENT, value: {{ .Values.chat.limits.globalConcurrent | quote }} }
             {{- if .Values.chat.enabled }}
             - { name: OPENAI_API_KEY_FILE, value: /secrets/openai-api-key }
             {{- end }}

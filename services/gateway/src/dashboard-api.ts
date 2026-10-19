@@ -1,3 +1,5 @@
+import { ChatAdmission, ChatBusyError } from './chat-admission.ts';
+import type { ChatLimits } from './chat-admission.ts';
 import express from 'express';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import * as argon2 from 'argon2';
@@ -12,7 +14,7 @@ import type { Registry } from './registry.ts';
 import { RegistryInputError } from './registry.ts';
 import { CredentialInputError } from './credentials.ts';
 import type { Gateway } from './gateway.ts';
-import { runChat } from './chat.ts';
+import { runChat, ChatInputError, validateChatInput } from './chat.ts';
 import type { Model } from './chat.ts';
 
 class HttpError extends Error {
@@ -44,12 +46,13 @@ type Options = {
   origin: string;
   model?: Model;
   modelName: string;
+  chatLimits?: Partial<ChatLimits>;
 };
 export function dashboardApi(options: Options) {
   const { store, registry, gateway, pepper, origin } = options;
   const router = express.Router();
   const loginAttempts = new Map<string, { count: number; until: number }>();
-  const activeChatUsers = new Set<string>();
+  const chatAdmission = new ChatAdmission(options.chatLimits);
   const digest = (kind: string, value: string) =>
     hashApiKey(`${kind}:${value}`, pepper);
   const cookieName =
@@ -368,31 +371,33 @@ export function dashboardApi(options: Options) {
         'Chat needs an OpenAI API key configured by the operator',
       );
     const user = actor(res);
-    limiter(`chat:${user.userId}`, 15, 60 * 60 * 1000);
     const input = z
       .object({
         conversationId: z.string().max(100).optional(),
-        message: z.string().min(1).max(8000),
+        message: z
+          .string()
+          .trim()
+          .min(1, 'Message must contain 1–8000 characters')
+          .max(8000),
       })
       .parse(req.body);
-    if (activeChatUsers.has(user.userId) || activeChatUsers.size >= 4)
-      throw new HttpError(429, 'Wait for the current answer to finish');
-    activeChatUsers.add(user.userId);
+    const id = input.conversationId ?? randomUUID();
+    let messages = [];
+    if (input.conversationId) {
+      const found = await store.pool.query(
+        'SELECT messages FROM conversations WHERE id=$1 AND user_id=$2 AND team_id=$3',
+        [id, user.userId, user.teamId],
+      );
+      if (!found.rows[0]) throw new HttpError(404, 'Unknown conversation');
+      messages = found.rows[0].messages;
+    }
+    validateChatInput(messages, input.message);
+    const release = chatAdmission.acquire(
+      user.userId,
+      user.teamId,
+      input.conversationId,
+    );
     try {
-      const id = input.conversationId ?? randomUUID();
-      let messages = [];
-      if (input.conversationId) {
-        const found = await store.pool.query(
-          'SELECT messages FROM conversations WHERE id=$1 AND user_id=$2 AND team_id=$3',
-          [id, user.userId, user.teamId],
-        );
-        if (!found.rows[0]) throw new HttpError(404, 'Unknown conversation');
-        messages = found.rows[0].messages;
-      } else
-        await store.pool.query(
-          'INSERT INTO conversations (id,user_id,team_id,title) VALUES ($1,$2,$3,$4)',
-          [id, user.userId, user.teamId, input.message.slice(0, 80)],
-        );
       const result = await runChat({
         gateway,
         actor: user,
@@ -401,26 +406,48 @@ export function dashboardApi(options: Options) {
         messages,
         message: input.message,
       });
-      await store.pool.query(
-        `UPDATE conversations SET messages=$1,input_tokens=input_tokens+$2,output_tokens=output_tokens+$3,updated_at=now() WHERE id=$4 AND user_id=$5 AND team_id=$6`,
-        [
-          JSON.stringify(result.messages),
-          result.inputTokens,
-          result.outputTokens,
-          id,
-          user.userId,
-          user.teamId,
-        ],
-      );
-      res.json({
-        id,
+      // A rejected/early failed turn must not create an empty conversation.
+      const persist =
+        !result.failure ||
+        result.activity.length > 0 ||
+        result.inputTokens > 0 ||
+        result.outputTokens > 0;
+      if (persist && !input.conversationId) {
+        await store.pool.query(
+          'INSERT INTO conversations (id,user_id,team_id,title,messages,input_tokens,output_tokens) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [
+            id,
+            user.userId,
+            user.teamId,
+            input.message.slice(0, 80),
+            JSON.stringify(result.messages),
+            result.inputTokens,
+            result.outputTokens,
+          ],
+        );
+      } else if (persist)
+        await store.pool.query(
+          `UPDATE conversations SET messages=$1,input_tokens=input_tokens+$2,output_tokens=output_tokens+$3,updated_at=now() WHERE id=$4 AND user_id=$5 AND team_id=$6`,
+          [
+            JSON.stringify(result.messages),
+            result.inputTokens,
+            result.outputTokens,
+            id,
+            user.userId,
+            user.teamId,
+          ],
+        );
+      res.status(result.failure?.status ?? 200).json({
+        error: result.failure ? result.text : undefined,
+        failure: result.failure,
+        id: persist || input.conversationId ? id : undefined,
         text: result.text,
         activity: result.activity,
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
       });
     } finally {
-      activeChatUsers.delete(user.userId);
+      release();
     }
   });
   router.use(
@@ -431,15 +458,21 @@ export function dashboardApi(options: Options) {
       _next: express.NextFunction,
     ) => {
       if (
+        error instanceof ChatInputError ||
         error instanceof RegistryInputError ||
         error instanceof CredentialInputError
       )
         res.status(400).json({ error: error.message });
+      else if (error instanceof ChatBusyError)
+        res.status(429).json({ error: error.message });
       else if (error instanceof HttpError)
         res.status(error.status).json({ error: error.message });
       else if (error instanceof z.ZodError)
         res.status(400).json({
-          error: 'Check the supplied fields',
+          error:
+            error.issues[0]?.path[0] === 'message'
+              ? 'Message must contain 1–8000 non-whitespace characters'
+              : 'Check the supplied fields',
           fields: error.issues.map((issue) => issue.path.join('.')),
         });
       else if (

@@ -1,3 +1,4 @@
+import OpenAI from 'openai';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
@@ -6,7 +7,7 @@ import type { ResponseOutputItem } from 'openai/resources/responses/responses';
 import { generateApiKey, hashApiKey } from '../packages/shared/src/api-keys.ts';
 import { Gateway } from '../services/gateway/src/gateway.ts';
 import { DevelopmentStore } from '../services/gateway/src/store.ts';
-import { runChat } from '../services/gateway/src/chat.ts';
+import { runChat, ChatInputError } from '../services/gateway/src/chat.ts';
 import type { Model, ModelResponse } from '../services/gateway/src/chat.ts';
 import { dayWindow } from '../services/time-mcp/src/server.ts';
 
@@ -189,4 +190,79 @@ test('store day windows respect local midnight, DST and exclusive second-precisi
   );
   assert.throws(() => dayWindow('invalid/timezone', '2026-10-19'));
   assert.throws(() => dayWindow('UTC', '2026-02-30'));
+});
+
+test('chat rejects blank input and oversized context before model or tool execution', async (t) => {
+  const { store, gateway, actor } = await setup();
+  t.after(() => store.close());
+  for (const [message, messages] of [
+    ['   ', []],
+    ['x'.repeat(8001), []],
+    [
+      'continue',
+      Array.from({ length: 301 }, () => ({
+        role: 'user' as const,
+        content: 'old',
+      })),
+    ],
+    ['continue', [{ role: 'user', content: 'x'.repeat(196609) }]],
+  ] as const) {
+    await assert.rejects(
+      () =>
+        runChat({
+          gateway,
+          actor,
+          model: async () => {
+            throw new Error('Model must not run');
+          },
+          modelName: 'test',
+          message,
+          messages: [...messages],
+        }),
+      ChatInputError,
+    );
+  }
+  assert.equal(store.auditRows().length, 0);
+});
+
+test('model errors return actionable status, log safe diagnostics and preserve completed mutations', async (t) => {
+  const { store, gateway, actor, mutations } = await setup();
+  t.after(() => store.close());
+  for (const [status, code, expected] of [
+    [401, 'invalid_api_key', 'model_configuration'],
+    [404, 'model_not_found', 'model_configuration'],
+    [429, 'insufficient_quota', 'model_quota'],
+    [429, 'rate_limit_exceeded', 'model_rate_limit'],
+    [500, 'internal_error', 'model_unavailable'],
+  ] as const) {
+    let round = 0;
+    const logs: unknown[] = [];
+    const result = await runChat({
+      gateway,
+      actor,
+      modelName: 'test',
+      messages: [],
+      message: 'Change store',
+      logError: (event) => logs.push(event),
+      model: async () => {
+        if (round++ === 0)
+          return response([functionCall('woo__get_status', 'mutation')]);
+        throw new OpenAI.APIError(
+          status,
+          { code, message: 'SECRET_PROVIDER_MESSAGE' },
+          'SECRET_PROVIDER_MESSAGE',
+          new Headers({ 'x-request-id': 'req_safe' }),
+        );
+      },
+    });
+    assert.equal(result.failure?.code, expected);
+    assert.notEqual(result.failure?.status, 200);
+    assert.equal(result.activity.length, 1);
+    assert.equal(result.inputTokens, 20);
+    assert.match(result.text, /may already have completed/);
+    assert.equal(logs.length, 1);
+    assert.ok(!JSON.stringify(logs).includes('SECRET_PROVIDER_MESSAGE'));
+    assert.match(JSON.stringify(logs), /req_safe/);
+  }
+  assert.equal(mutations(), 5, 'no automatic mutation retries');
 });
