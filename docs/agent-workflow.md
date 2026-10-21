@@ -19,7 +19,7 @@ Wrap manual mutation, cleanup, deploy and third-party client demonstrations in t
 
 ```sh
 node scripts/with-cluster-lock.ts -- kubectl --kubeconfig .data/kubeconfig -n urumi get pods
-node scripts/with-cluster-lock.ts -- claude -p --mcp-config .data/member-mcp.json --strict-mcp-config --allowedTools mcp__storelink "List today's orders."
+node scripts/with-cluster-lock.ts -- claude -p --mcp-config .data/member-mcp.json --strict-mcp-config --allowedTools mcp__urumi "List today's orders."
 ```
 
 Keep a lock for the entire test, including its cleanup. Run different tests sequentially, record UTC start/end times and the tested Git revision, and restore server/replica settings in `finally`. A historical log is not proof for a modified script.

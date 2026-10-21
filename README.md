@@ -58,17 +58,26 @@ Sign in to the dashboard → **Access** → generate a key for your account. Sav
 }
 ```
 
+For the required third-party demonstration, save the configuration above as `.data/member-mcp.json` (permissions `600`) and use real Claude Code:
+
+```sh
+node scripts/with-cluster-lock.ts -- claude -p --mcp-config .data/member-mcp.json --strict-mcp-config --allowedTools mcp__urumi \
+  "What orders came in today in the store's timezone? Use the time server for the day window and WooCommerce for orders. Then read the operations sales target and compare. Do not change anything."
+```
+
+The gateway configuration contains only its URL and the member key. Claude Code uses its own authentication/subscription, separately from dashboard OpenAI usage. This command passed the user-supplied QA run; see [client evidence](docs/verification.md#third-party-client-evidence).
+
 Client configuration wrappers vary; the required connection settings are the URL, Streamable HTTP, and that header. MCP Inspector is installed: run `npx @modelcontextprotocol/inspector`, choose Streamable HTTP, and enter those settings. Keep its local proxy token enabled.
 
 Expect nine tools across `woo__`, `time__` and `ops__`, including both `time__get_status` and `ops__get_status`. Refresh the client’s tool list after a connection changes; this stateless endpoint does not send SSE list-change notifications. Disabled tools and revoked keys fail on the next request even when the client caches old tools. Reconnect after a gateway replacement if your client retains a failed connection.
 
-For a terminal-based external agent using the same inexpensive OpenAI model, save user B’s generated gateway key in a private file (for example `.data/member-key`) and run:
+For an optional terminal convenience using the same inexpensive OpenAI model, save user B’s generated gateway key in a private file (for example `.data/member-key`) and run:
 
 ```sh
 URUMI_GATEWAY_KEY_FILE=.data/member-key node --env-file=.env scripts/external-chat.ts "Use the time service to find today, then list today's store orders."
 ```
 
-Its MCP configuration contains only the gateway URL and user B’s key; its separate OpenAI key belongs in `.env`. The command prints called tool names and token usage; add `--json` before the prompt for structured results. This external-agent flow passed the real-model acceptance check.
+Its MCP configuration contains only the gateway URL and user B’s key; its separate OpenAI key belongs in `.env`. The command prints called tool names and token usage; add `--json` before the prompt for structured results. This flow passed a real-model check, but reuses our dashboard chat loop and does not serve as the required third-party-client evidence.
 
 ## Use dashboard chat
 
