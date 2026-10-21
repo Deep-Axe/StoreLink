@@ -86,9 +86,15 @@ const transport = () =>
     fetch: (input, init) =>
       fetch(input, {
         ...init,
-        signal: init?.signal
-          ? AbortSignal.any([init.signal, AbortSignal.timeout(callTimeoutMs)])
-          : AbortSignal.timeout(callTimeoutMs),
+        signal:
+          init?.method === 'GET'
+            ? init.signal
+            : init?.signal
+              ? AbortSignal.any([
+                  init.signal,
+                  AbortSignal.timeout(callTimeoutMs),
+                ])
+              : AbortSignal.timeout(callTimeoutMs),
       }),
   });
 await until(async () => {

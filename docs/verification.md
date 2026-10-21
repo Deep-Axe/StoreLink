@@ -32,7 +32,7 @@ The private evidence file is `.data/live-chat-evidence.json`; screenshot/logs ar
 
 The user-provided QA report from 2026-10-19 records a real Claude Code headless run using only the gateway URL and an invited member's key in MCP configuration. The reproducible command is in the README. Claude combined time, WooCommerce and operations tools: four orders totaling ₹596.00 against a ₹5,000 target. Audit rows 86–89 record the QA member's `time__get_day_window`, `ops__get_fulfillment_policy`, `woo__list_orders` and `time__get_status` calls. These figures are the report's snapshot, not a promise about future order totals.
 
-Disable checks used raw `tools/list` and stale-name calls. Claude's cached tool refresh was not verified. This stateless endpoint requires explicit catalog refresh/reconnection; it does not emit SSE list-change notifications. Disabled routes and revoked keys are enforced on every request regardless of client caching. Inspector supports the raw protocol checks; no separate Inspector UI run is claimed.
+The original QA disable checks used raw `tools/list` and stale-name calls; Claude's cached tool refresh was not verified in that run. The gateway now supports team-scoped SSE catalog notifications, with real HTTP tests for isolation, revocation, session ownership, expiry and capacity. `scripts/smoke-catalog-notifications.ts` checks automatic SDK catalog refresh through the deployed Ingress. Disabled routes and revoked keys remain enforced on every request regardless of client caching.
 
 See [QA fixes and review order](bugfix-verification.md) for the nine fixes, current regression checks and cleanup results.
 

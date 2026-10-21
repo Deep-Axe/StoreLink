@@ -80,6 +80,37 @@ export class Gateway {
   upstreams = new Map<string, Upstream>();
   routes = new Map<string, Route>();
   ajv = new Ajv({ strict: false, allErrors: false });
+  private catalogListeners = new Set<(teamId: string) => void>();
+  private catalogSnapshots = new Map<string, string>();
+  private pendingCatalogs = new Set<string>();
+
+  onCatalogChanged(listener: (teamId: string) => void): () => void {
+    this.catalogListeners.add(listener);
+    return () => {
+      this.catalogListeners.delete(listener);
+    };
+  }
+  private catalogChanged(teamId: string): void {
+    if (this.pendingCatalogs.has(teamId)) return;
+    this.pendingCatalogs.add(teamId);
+    // Coalesce synchronous route replacement; unchanged discovery sends no event.
+    queueMicrotask(() => {
+      this.pendingCatalogs.delete(teamId);
+      const snapshot = JSON.stringify(
+        [...this.routes.entries()]
+          .filter(
+            ([, route]) =>
+              route.upstream.teamId === teamId && route.upstream.enabled,
+          )
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([name, route]) => [name, route.tool]),
+      );
+      const previous = this.catalogSnapshots.get(teamId) ?? '[]';
+      this.catalogSnapshots.set(teamId, snapshot);
+      if (snapshot === previous) return;
+      for (const listener of this.catalogListeners) listener(teamId);
+    });
+  }
 
   constructor(
     store: GatewayStore,
@@ -145,8 +176,10 @@ export class Gateway {
   }
 
   private dropRoutes(id: string): void {
+    const teamId = this.upstreams.get(id)?.teamId;
     for (const [name, route] of this.routes)
       if (route.upstream.id === id) this.routes.delete(name);
+    if (teamId) this.catalogChanged(teamId);
   }
 
   private failed(upstream: Upstream, reason: string): void {
@@ -198,6 +231,7 @@ export class Gateway {
       // Same public name is allowed in different teams; route storage is team scoped.
       for (const [name, route] of snapshot)
         this.routes.set(`${upstream.teamId}:${name}`, route);
+      this.catalogChanged(upstream.teamId);
       upstream.status = 'Connected';
       upstream.lastSuccessAt = new Date().toISOString();
     } catch {

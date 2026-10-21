@@ -1,6 +1,8 @@
 import { timingSafeEqual } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import express from 'express';
+import { Readable } from 'node:stream';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -17,6 +19,42 @@ export function checkServiceToken(actual: string, expected: string): boolean {
   const a = Buffer.from(actual),
     b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export async function readMcpBody(
+  request: Request,
+): Promise<{ body: unknown } | { response: Response }> {
+  let body: unknown;
+  if (request.method === 'POST') {
+    const reader = request.body?.getReader();
+    let length = 0;
+    const chunks: Uint8Array[] = [];
+    if (reader) {
+      for (;;) {
+        const result = await reader.read();
+        if (result.done) break;
+        length += result.value.byteLength;
+        if (length > 65536) {
+          await reader.cancel();
+          return {
+            response: Response.json(
+              { error: 'Request too large' },
+              { status: 413 },
+            ),
+          };
+        }
+        chunks.push(result.value);
+      }
+    }
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      return {
+        response: Response.json({ error: 'Invalid JSON' }, { status: 400 }),
+      };
+    }
+  }
+  return { body };
 }
 
 export function mcpHttpHandler(options: {
@@ -37,32 +75,9 @@ export function mcpHttpHandler(options: {
         { status: 403 },
       );
     }
-    let body: unknown;
-    if (request.method === 'POST') {
-      const reader = request.body?.getReader();
-      let length = 0;
-      const chunks: Uint8Array[] = [];
-      if (reader) {
-        for (;;) {
-          const result = await reader.read();
-          if (result.done) break;
-          length += result.value.byteLength;
-          if (length > 65536) {
-            await reader.cancel();
-            return Response.json(
-              { error: 'Request too large' },
-              { status: 413 },
-            );
-          }
-          chunks.push(result.value);
-        }
-      }
-      try {
-        body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
-    }
+    const parsed = await readMcpBody(request);
+    if ('response' in parsed) return parsed.response;
+    const { body } = parsed;
     let identity: unknown;
     try {
       identity = await options.authorize(request, body);
@@ -163,7 +178,21 @@ export function expressMcpApp(
         const response = await handler(request);
         res.status(response.status);
         response.headers.forEach((value, key) => res.setHeader(key, value));
-        res.end(Buffer.from(await response.arrayBuffer()));
+        if (
+          response.headers
+            .get('content-type')
+            ?.startsWith('text/event-stream') &&
+          response.body
+        ) {
+          // Stream notifications immediately; buffering an SSE body would never finish.
+          const stream = Readable.fromWeb(
+            response.body as NodeReadableStream<Uint8Array>,
+          );
+          res.on('close', () => stream.destroy());
+          stream.on('error', () => res.destroy());
+          res.flushHeaders();
+          stream.pipe(res);
+        } else res.end(Buffer.from(await response.arrayBuffer()));
       } catch {
         res.status(500).json({ error: 'Request failed' });
       }

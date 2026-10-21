@@ -28,7 +28,8 @@ const pepper = apiKeyPepper();
 const gateway = new Gateway(store, pepper);
 const port = Number(process.env.GATEWAY_PORT ?? 3000);
 const origin = process.env.GATEWAY_ORIGIN ?? `http://127.0.0.1:${port}`;
-const app = expressMcpApp(gatewayHttpHandler(gateway, origin), origin, () =>
+const mcpHandler = gatewayHttpHandler(gateway, origin);
+const app = expressMcpApp(mcpHandler, origin, () =>
   store instanceof PostgresStore ? store.health() : true,
 );
 let registry: Registry | undefined;
@@ -149,6 +150,7 @@ for (const signal of ['SIGINT', 'SIGTERM'])
   process.once(signal, async () => {
     clearInterval(refresh);
     server.close();
+    await mcpHandler.close();
     await registry?.close();
     await developmentClient?.close();
     await store.close();

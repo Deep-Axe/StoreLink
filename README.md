@@ -69,7 +69,7 @@ The gateway configuration contains only its URL and the member key. Claude Code 
 
 Client configuration wrappers vary; the required connection settings are the URL, Streamable HTTP, and that header. MCP Inspector is installed: run `npx @modelcontextprotocol/inspector`, choose Streamable HTTP, and enter those settings. Keep its local proxy token enabled.
 
-Expect nine tools across `woo__`, `time__` and `ops__`, including both `time__get_status` and `ops__get_status`. Refresh the client’s tool list after a connection changes; this stateless endpoint does not send SSE list-change notifications. Disabled tools and revoked keys fail on the next request even when the client caches old tools. Reconnect after a gateway replacement if your client retains a failed connection.
+Expect nine tools across `woo__`, `time__` and `ops__`, including both `time__get_status` and `ops__get_status`. The gateway advertises tool-list changes and sends team-scoped SSE notifications to connected clients. Clients that support automatic refresh update their catalogs when a server changes; otherwise refresh or reconnect manually. Disabled tools and revoked keys fail on the next request even when the client caches old tools. Sessions are bound to the issuing user/key, expire after 15 minutes idle, and are lost on gateway replacement; reconnect after a 404 session-expired response.
 
 For an optional terminal convenience using the same inexpensive OpenAI model, save user B’s generated gateway key in a private file (for example `.data/member-key`) and run:
 
