@@ -20,7 +20,10 @@ test('kubectl uses an override, an executable local install, or PATH in that ord
   );
 });
 
-test('shared cluster lock rejects an overlapping agent and releases after completion', async () => {
+test('shared cluster lock rejects an overlapping agent and releases after completion', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'storelink-lock-test-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const env = { ...process.env, TMPDIR: directory };
   const { spawn, spawnSync } = await import('node:child_process');
   const args = [
     'scripts/with-cluster-lock.ts',
@@ -31,6 +34,7 @@ test('shared cluster lock rejects an overlapping agent and releases after comple
   ];
   const first = spawn(process.execPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
+    env,
   });
   const done = new Promise<number | null>((resolve) =>
     first.once('exit', resolve),
@@ -51,7 +55,7 @@ test('shared cluster lock rejects an overlapping agent and releases after comple
       '-e',
       'process.exit(0)',
     ],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', env },
   );
   assert.equal(blocked.status, 73);
   assert.match(blocked.stderr, /Cluster busy/);
@@ -65,7 +69,7 @@ test('shared cluster lock rejects an overlapping agent and releases after comple
       '-e',
       'process.exit(0)',
     ],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', env },
   );
   assert.equal(released.status, 0);
 });

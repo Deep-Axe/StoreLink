@@ -266,3 +266,29 @@ test('model errors return actionable status, log safe diagnostics and preserve c
   }
   assert.equal(mutations(), 5, 'no automatic mutation retries');
 });
+
+test('SDK timeouts and signal aborts produce gateway timeout errors before any tool runs', async (t) => {
+  const { store, gateway, actor } = await setup();
+  t.after(() => store.close());
+  for (const error of [
+    new OpenAI.APIConnectionTimeoutError(),
+    new OpenAI.APIUserAbortError(),
+    new DOMException('deadline', 'TimeoutError'),
+  ]) {
+    const result = await runChat({
+      gateway,
+      actor,
+      modelName: 'test',
+      messages: [],
+      message: 'hello',
+      model: async () => {
+        throw error;
+      },
+      logError: () => {},
+    });
+    assert.equal(result.failure?.status, 504);
+    assert.equal(result.failure?.code, 'model_timeout');
+    assert.equal(result.activity.length, 0);
+    assert.match(result.text, /No tools ran/);
+  }
+});
