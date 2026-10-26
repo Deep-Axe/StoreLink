@@ -1,4 +1,5 @@
 import express from 'express';
+import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expressMcpApp } from '../../../packages/shared/src/mcp-http.ts';
@@ -12,6 +13,7 @@ import { FileCredentials, KubernetesCredentials } from './credentials.ts';
 import { Registry } from './registry.ts';
 import { dashboardApi } from './dashboard-api.ts';
 import { openaiModel } from './chat.ts';
+import { renderPrometheus } from './metrics.ts';
 
 const usePostgres = Boolean(
   process.env.DATABASE_URL || process.env.DATABASE_URL_FILE,
@@ -129,6 +131,31 @@ server.on('error', () => {
   console.error('Unable to bind gateway listener');
   process.exitCode = 1;
 });
+// Prometheus metrics on a separate port that the Ingress does not route.
+const metricsPort = Number(process.env.METRICS_PORT ?? 0);
+const metricsServer = metricsPort
+  ? createServer((req, res) => {
+      if (req.method !== 'GET' || req.url !== '/metrics') {
+        res.writeHead(404).end();
+        return;
+      }
+      void (async () => {
+        try {
+          const body = renderPrometheus(await store.callStats(), [
+            ...gateway.upstreams.values(),
+          ]);
+          res
+            .writeHead(200, {
+              'content-type': 'text/plain; version=0.0.4; charset=utf-8',
+            })
+            .end(body);
+        } catch {
+          console.error('Metrics collection failed');
+          res.writeHead(503).end();
+        }
+      })();
+    }).listen(metricsPort, process.env.BIND_ADDRESS ?? '127.0.0.1')
+  : undefined;
 let refreshing = false;
 const refresh = setInterval(() => {
   if (refreshing) return;
@@ -180,6 +207,7 @@ for (const signal of ['SIGINT', 'SIGTERM'])
     clearInterval(refresh);
     clearInterval(health);
     server.close();
+    metricsServer?.close();
     await mcpHandler.close();
     await registry?.close();
     await developmentClient?.close();

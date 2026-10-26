@@ -153,6 +153,27 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 - **Access:** invite members, and issue or revoke API keys.
 - **Activity:** the audit log of every tool call, showing user, server, tool, time, duration and outcome.
 
+### Metrics
+
+Administrators see each server's calls, error rate and average and p95 latency for the last 24 hours on its **Connections** card. The same summary is available as JSON from `GET /api/metrics?hours=<1-168>`.
+
+The gateway serves Prometheus metrics on port `9464` at `/metrics`. The port is reachable inside the cluster only; the Ingress does not route it, and the pod carries `prometheus.io/scrape` annotations. To inspect it locally:
+
+```sh
+kubectl -n storelink port-forward svc/storelink-gateway 9464:9464
+curl -s localhost:9464/metrics
+```
+
+| Metric                                              | Type      | Labels                              |
+| --------------------------------------------------- | --------- | ----------------------------------- |
+| `storelink_tool_calls_total`                        | counter   | `team`, `server`, `slug`, `outcome` |
+| `storelink_tool_call_duration_seconds`              | histogram | `team`, `server`, `slug`            |
+| `storelink_upstream_up`                             | gauge     | `team`, `server`, `slug`            |
+| `storelink_upstream_status`                         | gauge     | `team`, `server`, `slug`, `status`  |
+| `storelink_upstream_last_failure_timestamp_seconds` | gauge     | `team`, `server`, `slug`            |
+
+For example, the error rate per server over five minutes is `sum by (server) (rate(storelink_tool_calls_total{outcome=~"failed|timeout|uncertain"}[5m])) / sum by (server) (rate(storelink_tool_calls_total{outcome!="denied"}[5m]))`.
+
 ## Configuration
 
 Common chart values:
@@ -165,6 +186,7 @@ Common chart values:
 | `chat.limits.perUserConcurrent` / `perTeamConcurrent` / `globalConcurrent` | `1` / `4` / `16`                                             | Concurrent chat turns                                    |
 | `gateway.extraUpstreamOrigins`                                             | `[]`                                                         | Cluster-internal origins allowed as upstreams            |
 | `gateway.healthIntervalMs`                                                 | `1000`                                                       | Interval between upstream health probes                  |
+| `gateway.metrics.enabled`, `gateway.metrics.port`                          | `true`, `9464`                                               | Prometheus metrics listener inside the cluster           |
 | `store.host`, `gateway.host`                                               | `store.storelink.localhost`, `dashboard.storelink.localhost` | Public hostnames                                         |
 | `store.timezone`                                                           | `Asia/Kolkata`                                               | Store timezone, which defines "today"                    |
 | `storage.className`                                                        | `local-path`                                                 | Storage class for the persistent volumes                 |
@@ -297,7 +319,7 @@ The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` 
 | #1 VPS deployment        | Documented and templated, not deployed |
 | #6 Security hardening    | Partial                                |
 | #7 Scaling               | Partial: rate and concurrency limits   |
-| #8 Observability         | Partial: health and audit history      |
+| #8 Observability         | Implemented                            |
 | #9 Upgrades and rollback | Documented and rehearsed               |
 | #2–#5, multi-store bonus | Not attempted                          |
 

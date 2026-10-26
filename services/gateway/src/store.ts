@@ -3,6 +3,8 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Identity } from '../../../packages/shared/src/api-keys.ts';
+import { callStatsQuery, parseCallStats } from './metrics.ts';
+import type { CallStatsFilter, ServerCallStats } from './metrics.ts';
 
 export type KeyRecord = Identity & { revokedAt: string | null };
 export type AuditOutcome =
@@ -156,6 +158,11 @@ export class DevelopmentStore {
 
   auditRows(): Record<string, unknown>[] {
     return this.db.prepare('SELECT * FROM audit_calls ORDER BY rowid').all();
+  }
+
+  callStats(filter: CallStatsFilter = {}): ServerCallStats[] {
+    const { text, values } = callStatsQuery('sqlite', filter);
+    return parseCallStats(this.db.prepare(text).all(...values));
   }
 
   close(): void {

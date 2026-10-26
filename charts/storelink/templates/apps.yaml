@@ -9,6 +9,9 @@ spec:
   template:
     metadata:
       labels: { storelink/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+      {{- if .Values.gateway.metrics.enabled }}
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: {{ .Values.gateway.metrics.port | quote }}, prometheus.io/path: /metrics }
+      {{- end }}
     spec:
       serviceAccountName: {{ include "storelink.name" . }}-gateway
       automountServiceAccountToken: true
@@ -49,13 +52,20 @@ spec:
             - { name: CHAT_PER_TEAM_CONCURRENT, value: {{ .Values.chat.limits.perTeamConcurrent | quote }} }
             - { name: CHAT_GLOBAL_CONCURRENT, value: {{ .Values.chat.limits.globalConcurrent | quote }} }
             - { name: HEALTH_INTERVAL_MS, value: {{ .Values.gateway.healthIntervalMs | quote }} }
+            {{- if .Values.gateway.metrics.enabled }}
+            - { name: METRICS_PORT, value: {{ .Values.gateway.metrics.port | quote }} }
+            {{- end }}
             {{- if .Values.chat.enabled }}
             - { name: OPENAI_API_KEY_FILE, value: /secrets/openai-api-key }
             {{- end }}
             - { name: WOO_MCP_URL, value: "http://{{ include "storelink.name" . }}-woo-mcp:3001/mcp" }
             - { name: GATEWAY_ORIGIN, value: {{ .Values.gateway.publicUrl | quote }} }
             - { name: TEAM_ID, value: {{ .Values.teamId | quote }} }
-          ports: [{ name: http, containerPort: 3000 }]
+          ports:
+            - { name: http, containerPort: 3000 }
+            {{- if .Values.gateway.metrics.enabled }}
+            - { name: metrics, containerPort: {{ .Values.gateway.metrics.port }} }
+            {{- end }}
           startupProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 2, failureThreshold: 60 }
           readinessProbe: { httpGet: { path: /health/ready, port: http }, periodSeconds: 5, timeoutSeconds: 5 }
           livenessProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 10 }
@@ -88,7 +98,11 @@ metadata:
   name: {{ include "storelink.name" . }}-gateway
 spec:
   selector: { storelink/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
-  ports: [{ port: 3000, targetPort: http }]
+  ports:
+    - { name: http, port: 3000, targetPort: http }
+    {{- if .Values.gateway.metrics.enabled }}
+    - { name: metrics, port: {{ .Values.gateway.metrics.port }}, targetPort: metrics }
+    {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment

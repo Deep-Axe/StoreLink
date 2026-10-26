@@ -16,6 +16,7 @@ import { CredentialInputError } from './credentials.ts';
 import type { Gateway } from './gateway.ts';
 import { runChat, ChatInputError, validateChatInput } from './chat.ts';
 import type { Model } from './chat.ts';
+import { summarizeCalls } from './metrics.ts';
 
 class HttpError extends Error {
   status: number;
@@ -236,6 +237,32 @@ export function dashboardApi(options: Options) {
         )
       ).rows,
     );
+  });
+  router.get('/metrics', async (req, res) => {
+    admin(res);
+    const hours = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(168)
+      .default(24)
+      .parse(req.query.hours);
+    const { teamId } = actor(res);
+    const stats = await store.callStats({
+      teamId,
+      since: new Date(Date.now() - hours * 60 * 60 * 1000),
+    });
+    res.json({
+      hours,
+      servers: [...gateway.upstreams.values()]
+        .filter((upstream) => upstream.teamId === teamId)
+        .map((upstream) => ({
+          id: upstream.id,
+          slug: upstream.slug,
+          status: upstream.status,
+          ...summarizeCalls(stats.find((s) => s.serverId === upstream.id)),
+        })),
+    });
   });
   router.get('/tools', async (_req, res) =>
     res.json(await gateway.listTools(actor(res))),

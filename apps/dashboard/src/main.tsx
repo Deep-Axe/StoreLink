@@ -26,6 +26,15 @@ type Server = {
   lastSuccessAt?: string;
   lastFailureAt?: string;
   lastError?: string;
+  metrics?: {
+    calls: number;
+    errors: number;
+    timeouts: number;
+    denied: number;
+    errorRate: number;
+    avgLatencyMs: number;
+    p95LatencyMs: number;
+  };
 };
 type Member = {
   id: string;
@@ -440,6 +449,28 @@ function Connections({ me, run }: { me: Me; run: Run }) {
                     {date(server.lastFailureAt)} · {server.lastError}
                   </dd>
                 </div>
+              )}
+              {server.metrics && (
+                <>
+                  <div>
+                    <dt>Calls (24h)</dt>
+                    <dd>{server.metrics.calls}</dd>
+                  </div>
+                  <div>
+                    <dt>Error rate</dt>
+                    <dd>
+                      {server.metrics.errorRate}% · {server.metrics.errors}{' '}
+                      errors, {server.metrics.timeouts} timeouts
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Latency</dt>
+                    <dd>
+                      {server.metrics.avgLatencyMs} ms avg ·{' '}
+                      {server.metrics.p95LatencyMs} ms p95
+                    </dd>
+                  </div>
+                </>
               )}
             </dl>
             {me.user.role === 'admin' && (

@@ -3,6 +3,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { Pool } from 'pg';
 import type { Identity } from '../../../packages/shared/src/api-keys.ts';
 import type { AuditResult, GatewayStore, KeyRecord } from './store.ts';
+import { callStatsQuery, parseCallStats } from './metrics.ts';
+import type { CallStatsFilter, ServerCallStats } from './metrics.ts';
 
 export class PostgresStore implements GatewayStore {
   pool: Pool;
@@ -135,6 +137,11 @@ export class PostgresStore implements GatewayStore {
         id,
       ],
     );
+  }
+
+  async callStats(filter: CallStatsFilter = {}): Promise<ServerCallStats[]> {
+    const { text, values } = callStatsQuery('postgres', filter);
+    return parseCallStats((await this.pool.query(text, values)).rows);
   }
 
   async auditRows(teamId: string): Promise<Record<string, unknown>[]> {
