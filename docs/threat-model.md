@@ -2,38 +2,51 @@
 
 ## Assets and trust boundaries
 
-Protect WooCommerce credentials, upstream credentials, gateway keys, browser sessions, OpenAI credentials, team order data and audit attribution. Trust the host/cluster operator and team administrators to manage integrations. Members may call every enabled team tool; the store integration account has shared read/write privileges. The model and upstream metadata/results are untrusted.
+- **Protected assets:** WooCommerce REST credentials, upstream MCP credentials, user gateway API keys, browser session cookies, the OpenAI API key, store product/order data, and audit records.
+- **Trust boundaries:** Browser and external MCP traffic enters through Traefik Ingress. Only the gateway pod talks to upstream MCP servers, and only the WooCommerce MCP pod talks to the WordPress REST API using the store integration credentials. The LLM and all upstream tool descriptions and tool outputs are treated as untrusted input.
 
-## Shared credentials without disclosure
+## Shared upstream credentials
 
-A member never sees the WooCommerce key, yet can exercise the privileges exposed through its tools: read products/orders, create products and change order statuses. Hiding a credential does not limit those delegated capabilities. Members can change shared store state and affect coworkers’ work. The current design has no approval queue or tool-specific member ACLs. Product/order tools intentionally omit unrelated account administration and customer contact/address data. Administrators must review the tool catalog and integration account permissions before inviting members.
+Team members never see the WooCommerce consumer key/secret or upstream bearer tokens; `GET /api/servers` returns `hasCredential` booleans to admins and omits URLs and credential metadata for members.
 
-## Token termination
+Hiding credentials does not restrict what an enabled tool can do. Because the gateway authenticates to WooCommerce with a shared `shop_manager` key, any member who can call `woo__create_product` or `woo__update_order_status` can create published products or change order statuses on the shared store. To limit unnecessary exposure:
 
-Gateway keys identify a person and authorize gateway access. They are never forwarded to an upstream. The gateway attaches only that upstream’s static credential, avoiding credential leakage, accidental trust between services and upstream impersonation of gateway users. Audit entries retain the gateway user even though the store sees a shared integration account. Revocation is checked on every listing/call, including open clients; matching revoked digests are retained for attribution.
+- The WooCommerce MCP server exposes only the five required product and order tools (no user, plugin, settings or webhook endpoints).
+- Order responses strip customer billing/shipping addresses, email addresses and phone numbers (`services/woocommerce-mcp/src/server.ts`).
+- Every tool invocation is logged in `audit_calls` with the calling gateway user and API key before the upstream request is sent.
 
-Password hashes use Argon2id; high-entropy API keys and session/invite tokens use domain-separated HMAC-SHA256 with a Secret-held pepper. Digests are indexed; raw gateway keys are displayed once. Compromise of PostgreSQL alone does not reveal keys. Compromise of the gateway and its mounted/authorized Secrets crosses that boundary. Rotating the pepper invalidates existing credentials unless explicitly migrated.
+## Why client tokens are terminated at the gateway
+
+External clients authenticate to `/mcp` with a per-user gateway API key (`storelink_...`), and browser users authenticate to `/api/*` with a session cookie. The gateway terminates those credentials and attaches only the target upstream's configured static header when forwarding a tool call:
+
+- Forwarding a user's gateway key to an upstream would let a compromised or third-party upstream impersonate that user against the gateway and call every other registered server on their behalf.
+- Upstream servers have independent authentication schemes and no access to the gateway's user database or key pepper.
+- Terminating keys at the gateway allows immediate per-request revocation (`gateway.authenticate` and `store.isActive`) across all upstreams, including inside already-open Streamable HTTP sessions, while still attributing post-revocation denials to the revoked key's owner.
 
 ## Untrusted upstreams and prompt injection
 
-An upstream can publish descriptions or results telling the model to ignore the user, disclose information or invoke another tool. Instructions identify this material as untrusted, and the model has no generic network/shell tool or access to credentials. Arguments are schema-validated and calls remain subject to gateway authorization, auditing and budgets.
+A registered upstream server can return tool descriptions or tool results crafted to manipulate the model (for example, instructing it to call `woo__create_product`, change an order status, or exfiltrate data from another tool's output into a subsequent call's arguments).
 
-Those measures do not prove resistance to prompt injection. A malicious integration could induce an unwanted call or exfiltrate tool-visible data through a tool it controls. Server registration is administrator-only. Public HTTPS origins are accepted after public-address DNS checks, repeated at socket connection time; private/internal origins require exact deployment approval. Mixed public/private DNS answers, metadata addresses, redirects and URL credentials are rejected, and descriptions/results are bounded. Review upstream trust and use least-privilege accounts. Explicitly approved internal origins trust their configured DNS targets. Public connections use the checked addresses directly, preventing a second DNS resolution from rebinding to a private address. This does not replace a production egress firewall or a review of public upstream behavior. An upstream necessarily receives its own credential and could echo it back; only connect services trusted to handle that credential.
+Mitigations in place:
 
-## What one member can do to another
+- **System instructions:** `services/gateway/src/chat.ts` instructs the model to treat tool descriptions and tool outputs as untrusted data, never invent results, and only run store mutations when explicitly asked by the user.
+- **Constrained capability surface:** The model has no shell, filesystem or arbitrary HTTP fetch tool; it can only invoke registered MCP tools with arguments that pass Ajv JSON Schema validation.
+- **Metadata and output bounds:** Tool descriptions are capped at 4 KiB, input schemas at 64 KiB, gateway tool responses at 256 KiB (32 KiB inside chat context), and chat turns are capped at 8 model rounds and 20 tool calls.
+- **Admin-only registration and SSRF protection:** Only admins can add or edit upstreams. Public upstreams must use HTTPS and resolve exclusively to public unicast IPs at both registration time and socket connection time (`services/gateway/src/upstream-policy.ts`), blocking loopback, link-local/cloud metadata (`169.254.169.254`), cluster-internal Services, and DNS rebinding. Redirects and URL-embedded credentials are rejected.
 
-Members share enabled tool privileges and can modify shared commerce data or consume team model credits. They cannot administer connections/members, revoke another member’s key, or read another user’s conversations or personal audit view. Admins can issue/revoke team keys and disable member access. Concurrent commerce mutations use WooCommerce’s behavior; there is no per-member transaction isolation beyond authorization/auditing.
+Prompt injection remains an inherent risk whenever an LLM processes untrusted tool output alongside write-capable tools: a malicious upstream could still steer the model into calling another enabled tool during the same turn. Administrators should only register upstreams they trust with the team's enabled tool catalog.
 
-Owner/team predicates protect object access; invitation acceptance is transactional and single-use. CSRF tokens, strict cookies, origin/Host checks, CSP, input bounds and throttling protect browser routes. Configurable hourly, per-user, per-team and global chat limits bound basic abuse, but are in-memory and reset on restart; production needs ingress/shared limits. Login has no SSO, MFA, password recovery or email delivery in this release.
+## What one team member can do to another
 
-## Cluster, transport and recovery
+Within a team, members share the store and upstream tool catalog:
 
-Only Ingress exposes the storefront/dashboard/gateway. NetworkPolicies and independent service tokens protect all three MCP upstreams; MariaDB and PostgreSQL accept only their application workloads. The adapter alone mounts store credentials. The gateway can read/patch one named upstream Secret; no user route exposes arbitrary Kubernetes API access. The named Secret aggregates team upstream credentials, so gateway compromise exposes that entire set. Policies currently constrain ingress, not all egress.
+- **Shared capabilities:** Any member can create products, update order statuses, and consume team OpenAI quota (bounded by `chat.limits.perUserHour`, `perUserConcurrent`, `perTeamConcurrent`, and `globalConcurrent`).
+- **Enforced isolation:** Members cannot add, edit, disable or delete upstream servers (`403`), list or invite members (`403`), or revoke another user's API key. Conversations (`GET /api/conversations/:id`, `POST /api/chat`), personal audit logs (`GET /api/audit`), and active MCP session IDs (`mcp-session-id`) are scoped to the authenticated user; cross-user access returns `403` or `404`.
+- **Browser and session controls:** State-changing `/api/*` requests require a same-origin `Origin` header, a matching `Host` header, and a session-bound `x-csrf-token`. Login and invitation endpoints enforce per-IP and per-account rate limits.
 
-Public production traffic uses TLS. Internal store HTTP/OAuth does not encrypt customer/store traffic or protect JSON bodies from an on-path attacker. The host, CNI and cluster administrators remain trusted; use internal TLS/mTLS if that is insufficient. Kubernetes Secrets are base64 data, not encryption: enable encryption at rest and restrict operator access. Protect the local recovery file as a credential backup.
+## Cluster and storage boundaries
 
-Audits exclude full tool arguments and order contact data; HTTP logs contain generated request IDs, method, status and timing, not credentials or request bodies. Database/audit failures fail closed before dispatch. Lost mutation replies are uncertain, not retried. Back up both databases, WordPress content and Secrets off-node, and test restores. Single-node storage and the gateway remain availability risks.
-
-## Verification limits
-
-Automated/cluster checks cover boundaries and common failure paths; they are not a security audit. See [verification](verification.md). The live model demonstration passed; a public HTTPS VPS deployment remains unverified. Multi-store provisioning/isolation is deferred.
+- **NetworkPolicies (`charts/storelink/templates/network-policies.yaml`):** `woo-mcp`, `time-mcp` and `operations-mcp` accept ingress only from the `gateway` pod. `postgres` accepts ingress only from `gateway`, `mariadb` accepts ingress only from `wordpress` and `store-bootstrap`, and `wordpress` accepts ingress only from `woo-mcp` and the Traefik ingress controller.
+- **Least-privilege RBAC (`charts/storelink/templates/registry-rbac.yaml`):** All pods except `gateway` run with `automountServiceAccountToken: false`. The `gateway` ServiceAccount has a namespaced `Role` granting `get` and `patch` solely on `resourceNames: [storelink-upstream-credentials]`.
+- **Container security:** Application and MCP containers (`gateway`, `woo-mcp`, `time-mcp`, `operations-mcp`) run as non-root UID/GID `1000`.
+- **Secrets and transport:** Internal WooCommerce REST calls use OAuth 1.0a HMAC-SHA256 over cluster HTTP; production deployments that require encrypted pod-to-pod traffic should enable a CNI wire-encryption layer or service mesh. Enable Kubernetes Secret encryption at rest on the k3s host and restrict access to `.data/cluster-secrets.json` and `.data/kubeconfig` (`0600`).

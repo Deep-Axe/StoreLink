@@ -1,54 +1,55 @@
-# Verification and Remaining Acceptance Work
+# Verification
 
-Verified locally on 2026-10-19 with k3d 5.9.0 / k3s 1.35.5, Helm 4.3.1, MCP SDK 1.28.0, Node 24 and Google Chrome 154. These notes distinguish real infrastructure from deterministic fixtures.
+## Automated test suite
 
-## Executed evidence
+`npm test` runs 37 deterministic unit and protocol tests across ten test files without making paid OpenAI calls:
 
-- `npm test`: thirty-one tests cover routing/collisions, isolation, schema validation, audit failure, key revocation/attribution, actual SDK HTTP exchanges, OAuth canonical binding, uncertain mutations, bounded scripted Responses continuation and timezone/DST boundaries. Scripted model tests make no paid calls.
-- `scripts/local-up.sh`: repeated image builds and Helm upgrades completed; WordPress/WooCommerce bootstrap is idempotent and all long-running workloads become Ready.
-- `node scripts/smoke-cluster.ts`: real gateway → Woo MCP → OAuth REST product creation/listing, browser COD checkout, order listing/retrieval/status update. The initial recorded product/order IDs were 13/15; the final run created product 16/order 17, confirmed the order in WooCommerce admin, and retrieved it with time-service UTC day filters. PostgreSQL retained attributed audit entries. The script creates new demo data each run.
-- `node scripts/smoke-dashboard.ts`: real Chrome login as admin/member, three connected servers/nine tools, CSRF/origin denial, member administration denial, self-service key creation, duplicate-name calls, disable/re-enable, revocation in an existing client and attributed denials. Browser invitation acceptance, single-use enforcement, member key ownership and access removal passed. The extended check also passed connection add/edit/remove, credential replacement and denial of unapproved origins/unsafe credential headers.
-- An unlabelled test pod could not reach the healthy Woo MCP Service; the gateway reached it successfully. This checks actual NetworkPolicy enforcement, not just rendered YAML.
-- `node scripts/smoke-failures.ts`: gateway replacement retained the browser session, disabled registration and audit rows; WordPress replacement retained product/order data, including order 15 initially and order 22 when rerun after live model acceptance.
-- An operations pod was removed and held down with zero replicas. The dashboard reported Unreachable while time calls succeeded; restoring replicas restored the catalog.
+- **`tests/gateway.test.ts`:** API key HMAC digest lookup, revoked-key attribution after restart, `<slug>__<alias>` tool collision routing (`time__get_status` vs `ops__get_status`), immediate route removal on disable, hung upstream timeout isolation, uncertain mutation auditing without retries, argument schema validation, cross-team route isolation, audit-failure fail-closed behavior, and full MCP SDK Streamable HTTP exchanges.
+- **`tests/mcp-notifications.test.ts`:** Stateful Streamable HTTP + GET SSE sessions, team-scoped `notifications/tools/list_changed` delivery, suppression of unchanged catalog refreshes, cross-user/cross-key session rejection (`403`), revoked-key notification cutoff, per-user/global session limits (`429`), `DELETE` cleanup, and idle session expiry (`404`).
+- **`tests/health.test.ts`:** 1-second upstream ping probes, per-upstream `Unreachable` transition, 2-second retry hold window before rediscovery, probe timeout bounds, and fresh MCP session reconnection after upstream restart.
+- **`tests/upstream-policy.test.ts` & `tests/upstream-network.test.ts`:** Public HTTPS registration without a Helm allowlist change, rejection of loopback/private/link-local/metadata/mixed DNS answers, socket-level DNS rebinding prevention, and 2-second TCP connect timeouts that do not truncate long-running tool calls.
+- **`tests/woocommerce.test.ts`:** OAuth 1.0a HMAC-SHA256 canonical host signing, direct HTTP transport for both HTTP and HTTPS public store URLs, redirect/HTML/auth error rejection without mutation retry, and service token / CORS enforcement.
+- **`tests/chat.test.ts`, `tests/chat-admission.test.ts` & `tests/dashboard-api.test.ts`:** Scripted OpenAI Responses multi-round tool continuation, mid-turn catalog/authz rechecks, round/call/context bounds, DST-aware store day windows, categorized provider/timeout errors, atomic conversation persistence, and per-user/team/global admission limits that do not charge rejected requests against the hourly quota.
+- **`tests/scripts.test.ts`:** `kubectl` binary resolution order and host-wide `flock` cluster lock contention (`exit 73`) and release.
 
-Screenshots/logs and generated test identifiers live under ignored `.cache/` and `.data/`. They are local evidence, not required configuration.
+## Cluster smoke checks
 
-## Live OpenAI acceptance
+All cluster scripts run against the local k3d deployment (`storelink` namespace) and acquire the shared cluster lock:
 
-`node --env-file=.env scripts/smoke-chat.ts` passed with `gpt-6-luna` against the deployed application. It makes paid model calls and creates demo data; it is separate from deterministic CI tests.
+- **`node scripts/smoke-cluster.ts`:** Connects to `/mcp` through Ingress, verifies all five `woo__*` tools, creates a product through `woo__create_product`, places a Cash on Delivery order in headless Chrome, confirms the order in WordPress admin (`WooCommerce → Orders`), queries today's orders using `time__get_day_window` + `woo__list_orders`, and updates the order status to `processing`.
+- **`node scripts/smoke-dashboard.ts`:** Logs into the React dashboard as `admin@storelink.local` and `member@storelink.local`, verifies three `Connected` servers and nine tools, checks CSRF and cross-origin rejection (`403`), verifies member RBAC restrictions, issues and revokes a member API key, tests colliding `time__get_status` and `ops__get_status` calls, disables and re-enables a server, adds/edits/removes a temporary server with credential replacement, exercises single-use member invitations, and saves desktop/mobile screenshots.
+- **`node scripts/smoke-catalog-notifications.ts`:** Opens an SDK client with `listChanged` auto-refresh enabled over Ingress SSE, disables and re-enables `ops`, verifies automatic client catalog updates without reconnecting, and confirms key revocation closes access.
+- **`node scripts/smoke-pod-delete.ts`:** Force-deletes the `storelink-operations-mcp` pod with `replicas=1` and zero client traffic during the outage, verifies the gateway's 1-second health probe flips `ops` to `Unreachable` and records an `upstream_events` entry while `time` and `woo` calls succeed, and confirms automatic catalog and tool recovery once Kubernetes replaces the pod.
+- **`node scripts/smoke-failures.ts`:** Exercises held scale-to-zero outages, verifies `storelink-gateway` rollout restart retains sessions, disabled server state and audit rows, and verifies `storelink-wordpress` rollout restart retains product and order data on its PVC.
+- **`node --env-file=.env scripts/smoke-chat.ts` & `node scripts/smoke-chat-regressions.ts`:** Runs the end-to-end two-user flow with live OpenAI (`gpt-6-luna`): User A creates a product in dashboard chat, places a browser COD order, queries today's orders across `time` and `woo`, and reloads saved conversation history and token counts; User B connects with a separate API key, runs a multi-upstream prompt (`time`, `woo`, `ops`), and verifies server disable, key revocation, conversation isolation (`404`), and attributed audit rows.
 
-- Dashboard admin A used chat to create product **21**. Browser COD checkout produced order **22**, which was confirmed in WooCommerce admin.
-- The next chat turn called `time__get_day_window` and `woo__list_orders`; both tool results and the final answer included order 22.
-- Saved conversation history reloaded successfully and token counts persisted. Member B could not read A’s conversation.
-- Member B generated a gateway key and used the bundled external agent CLI as a separate MCP client. A real prompt combined time, WooCommerce orders and the operations sales target. The model received no upstream credentials.
-- Disabling operations removed its tools from both catalogs. Dashboard chat reported the policy unavailable, while B’s external agent still answered using time and WooCommerce.
-- B’s revoked key was rejected on the next call in an open SDK client. Audits attributed successful and denied calls to the correct user/key; dashboard calls were attributed to A’s session.
-- Three dashboard turns used 7,449 input / 370 output tokens; two external turns used 7,730 input / 387 output tokens. These are measured usage counts for this run, not a billing estimate.
+## External MCP client verification
 
-The private evidence file is `.data/live-chat-evidence.json`; screenshot/logs are under `.cache/`. Test keys were revoked and the temporary key file deleted. Live model behavior can vary on reruns. The bundled SDK CLI reuses our chat loop; the separate third-party evidence is below.
+In addition to MCP Inspector (`npx @modelcontextprotocol/inspector`) and the SDK smoke scripts, the gateway was verified with **Claude Code** (`claude -p`) configured solely with `http://dashboard.storelink.localhost/mcp` and a member Bearer key:
 
-## Third-party client evidence
+```sh
+node scripts/with-cluster-lock.ts -- claude -p --mcp-config .data/member-mcp.json --strict-mcp-config --allowedTools mcp__storelink \
+  "What orders came in today in the store's timezone? Use the time server for the day window and WooCommerce for orders. Then read the operations sales target and compare. Do not change anything."
+```
 
-The user-provided QA report from 2026-10-19 records a real Claude Code headless run using only the gateway URL and an invited member's key in MCP configuration. The reproducible command is in the README. Claude combined time, WooCommerce and operations tools: four orders totaling ₹596.00 against a ₹5,000 target. Audit rows 86–89 record the QA member's `time__get_day_window`, `ops__get_fulfillment_policy`, `woo__list_orders` and `time__get_status` calls. These figures are the report's snapshot, not a promise about future order totals.
+Claude Code discovered the tools of all three servers (`mcp__storelink__woo__*`, `time__*`, `ops__*`), chained `time__get_day_window`, `woo__list_orders` and `ops__get_fulfillment_policy` in a single prompt, and recorded attributed member rows in `audit_calls`.
 
-The original QA disable checks used raw `tools/list` and stale-name calls; Claude's cached tool refresh was not verified in that run. The gateway now supports team-scoped SSE catalog notifications, with real HTTP tests for isolation, revocation, session ownership, expiry and capacity. `scripts/smoke-catalog-notifications.ts` checks automatic SDK catalog refresh through the deployed Ingress. Disabled routes and revoked keys remain enforced on every request regardless of client caching.
+## Stand-out items and additional features
 
-See [QA fixes and review order](bugfix-verification.md) for the nine fixes, current regression checks and cleanup results.
+Mapping against the assignment brief's numbered stand-out items:
 
-## Remaining gates
+| Item                                         | Status                                                  | Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **#1 Production-like VPS deployment**        | Documented & templated (not deployed to a live VPS)     | `charts/storelink/values-prod.yaml`, [README production guide](../README.md#production-deployment-k3s), [system design](system-design.md#production-changes)                                                                                                                                                                                                                                                                                                                                                                                              |
+| **#6 Security hardening**                    | Partial                                                 | SSRF & socket-level DNS rebinding checks (`services/gateway/src/upstream-policy.ts`, `tests/upstream-policy.test.ts`); single-Secret least-privilege RBAC (`charts/storelink/templates/registry-rbac.yaml`, `services/gateway/src/credentials.ts`); ingress `NetworkPolicy` isolation on MCP servers and databases (`charts/storelink/templates/network-policies.yaml`); non-root app containers (`runAsNonRoot: true`, UID `1000`). Default-deny egress, non-root WordPress/DB images, and cluster Secret encryption at rest are not enabled by default. |
+| **#7 Scaling**                               | Partial (rate limits only; single gateway replica)      | Per-user hourly chat quota (`15/hr`), per-user/team/global concurrent turn limits (`services/gateway/src/chat-admission.ts`), per-user API request throttling (`180/min`), and login/invite rate limits (`services/gateway/src/dashboard-api.ts`).                                                                                                                                                                                                                                                                                                        |
+| **#8 Observability**                         | Partial (health & audit history; no Prometheus metrics) | 1-second upstream ping probes, persisted `lastError` / `lastFailureAt` / `lastSuccessAt` status fields, `upstream_events` transition history in the Connections UI (`services/gateway/src/registry.ts`), and per-call duration/outcome/reason tracking in `audit_calls`.                                                                                                                                                                                                                                                                                  |
+| **#9 Upgrades and rollback**                 | Implemented & rehearsed                                 | Revision-scoped store bootstrap Job (`charts/storelink/templates/store.yaml`), backward-compatible additive SQL migrations (`services/gateway/migrations/`), and an upgrade/rollback procedure rehearsed on the local cluster, with backups verified by restoring them into scratch databases, in [README](../README.md#upgrades-and-rollback) and [system design](system-design.md#upgrades-and-rollback).                                                                                                                                               |
+| **Bonus (Multi-store provisioning) & #2–#5** | Not attempted                                           | Deferred in favor of completing the core platform and the items above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-- Validate actual public DNS/TLS and restore procedures on a VPS if deploying one. Production Helm rendering alone is not a live production test.
+Additional platform features:
 
-## Extras and locations
-
-| Extra                                                      | Implementation                                                        |
-| ---------------------------------------------------------- | --------------------------------------------------------------------- |
-| Team/owner scoping, member invitations and CSRF/throttling | `services/gateway/src/dashboard-api.ts`, PostgreSQL migrations        |
-| Conversations and token accounting                         | `services/gateway/src/chat.ts`, `conversations` table, dashboard Chat |
-| Persisted connection transitions                           | `services/gateway/src/registry.ts`, dashboard Connections             |
-| Shared credential confinement and origin allowlist         | `credentials.ts`, registry, chart RBAC/NetworkPolicies                |
-| Minimized order data and uncertain write outcomes          | Woo MCP source, gateway audit path                                    |
-| DST-aware store-local day windows                          | `services/time-mcp/`, `tests/chat.test.ts`                            |
-
-Multi-store provisioning is not attempted. The mandatory local two-user real-model demonstration has passed; production DNS/TLS and backup/restore checks remain deployment-specific.
+- **Team-scoped SSE catalog notifications:** Connected MCP clients receive `notifications/tools/list_changed` when a team's upstream catalog changes (`services/gateway/src/mcp.ts`).
+- **Owner-scoped conversations and token accounting:** Saved chat history and input/output token totals per user (`services/gateway/src/chat.ts`, `migrations/0002_dashboard.sql`).
+- **Single-use, expiring invitations:** Hashed 24-hour member invite links (`services/gateway/src/dashboard-api.ts`).
+- **Order PII minimization and uncertain write handling:** Customer contact details are omitted from MCP order responses, and interrupted store mutations are flagged `uncertain` without automatic retry (`services/woocommerce-mcp/src/server.ts`).
