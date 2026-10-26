@@ -63,3 +63,16 @@ ingress:
     secretName: storelink-tls
 networkPolicies:
   enabled: true
+  # Where the gateway reaches the Kubernetes API, as the API server's own address and
+  # port (6443 on k3s; often 443 on managed clusters). Narrow the CIDR where it is known.
+  kubernetesApi:
+    cidrs: [0.0.0.0/0]
+    ports: [6443]
+  # Gateway egress to public HTTPS (OpenAI and public upstreams).
+  publicHttps: true
+  # Peers allowed to scrape the gateway metrics port, as NetworkPolicy `from` entries.
+  metricsFrom: []
+  # Extra egress rules for the gateway, for example private HTTP upstreams.
+  gatewayEgress: []
+  # Extra egress rules for WordPress, for example plugin updates or WP-Cron over the public URL.
+  wordpressEgress: []
