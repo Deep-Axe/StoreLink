@@ -1,6 +1,12 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import https from 'node:https';
 import type { OutgoingHttpHeaders } from 'node:http';
+import {
+  credentialKey,
+  isSealed,
+  openCredential,
+  sealCredential,
+} from '../../../packages/shared/src/credential-cipher.ts';
 
 export type Credential = { header: string; value: string };
 export class CredentialInputError extends Error {}
@@ -23,13 +29,30 @@ export function validateCredential(value: Credential): Credential {
   return value;
 }
 
+function seal(key: Buffer, id: string, value: Credential): string {
+  return sealCredential(key, id, JSON.stringify(validateCredential(value)));
+}
+
+// Plaintext entries from older releases are still readable; sealed ones fail closed.
+function open(key: Buffer, id: string, stored: unknown): Credential {
+  return validateCredential(
+    isSealed(stored)
+      ? JSON.parse(openCredential(key, id, stored))
+      : (stored as Credential),
+  );
+}
+
+export class SecretConflictError extends Error {}
+
 // The gateway can read/patch this one Secret, not arbitrary cluster Secrets.
 export class KubernetesCredentials implements CredentialStore {
   path: string;
-  constructor(namespace: string, name: string) {
+  key: Buffer;
+  constructor(namespace: string, name: string, pepper: Uint8Array) {
     if (![namespace, name].every((part) => /^[a-z0-9-]+$/.test(part)))
       throw new Error('Invalid Secret location');
     this.path = `/api/v1/namespaces/${namespace}/secrets/${name}`;
+    this.key = credentialKey(pepper);
   }
   async request(
     method: string,
@@ -59,6 +82,10 @@ export class KubernetesCredentials implements CredentialStore {
               request.destroy(new Error('Secret exceeds limit'));
           });
           response.on('end', () => {
+            if (response.statusCode === 409) {
+              reject(new SecretConflictError('Credential Secret changed'));
+              return;
+            }
             if (response.statusCode !== 200) {
               reject(new Error('Credential Secret is unavailable'));
               return;
@@ -83,42 +110,80 @@ export class KubernetesCredentials implements CredentialStore {
   async get(id: string): Promise<Credential | undefined> {
     const result = await this.request('GET');
     const data = result.data as Record<string, string> | undefined;
-    return data?.[id]
-      ? validateCredential(
-          JSON.parse(Buffer.from(data[id], 'base64').toString('utf8')),
-        )
-      : undefined;
+    return data?.[id] ? open(this.key, id, decode(data[id])) : undefined;
   }
   async set(id: string, value: Credential | null): Promise<void> {
     if (!/^[a-zA-Z0-9._-]+$/.test(id)) throw new Error('Invalid credential ID');
     await this.request('PATCH', {
-      data: {
-        [id]: value
-          ? Buffer.from(JSON.stringify(validateCredential(value))).toString(
-              'base64',
-            )
-          : null,
-      },
+      data: { [id]: value ? encode(seal(this.key, id, value)) : null },
     });
+  }
+  // Seals plaintext entries left by older releases. The resourceVersion makes the
+  // patch fail rather than overwrite a credential changed in the meantime.
+  async sealLegacy(): Promise<number> {
+    for (let attempt = 0; ; attempt++) {
+      const result = await this.request('GET');
+      const metadata = result.metadata as {
+        resourceVersion: string;
+        annotations?: Record<string, string>;
+      };
+      const data = (result.data ?? {}) as Record<string, string>;
+      const sealed: Record<string, string> = {};
+      for (const [id, stored] of Object.entries(data)) {
+        const value = decode(stored);
+        if (!isSealed(value))
+          sealed[id] = encode(seal(this.key, id, value as Credential));
+      }
+      // `kubectl apply` keeps a copy of the applied data in this annotation.
+      const applied = metadata.annotations?.[lastApplied];
+      const plaintextCopy =
+        applied !== undefined &&
+        Object.values(
+          (JSON.parse(applied) as { data?: Record<string, string> }).data ?? {},
+        ).some((stored) => !isSealed(decode(stored)));
+      if (!Object.keys(sealed).length && !plaintextCopy) return 0;
+      try {
+        await this.request('PATCH', {
+          metadata: {
+            resourceVersion: metadata.resourceVersion,
+            ...(plaintextCopy && { annotations: { [lastApplied]: null } }),
+          },
+          data: sealed,
+        });
+        return Object.keys(sealed).length;
+      } catch (error) {
+        if (!(error instanceof SecretConflictError) || attempt >= 2)
+          throw error;
+      }
+    }
   }
 }
 
+const lastApplied = 'kubectl.kubernetes.io/last-applied-configuration';
+const decode = (stored: string): unknown =>
+  JSON.parse(Buffer.from(stored, 'base64').toString('utf8'));
+const encode = (value: string) => Buffer.from(value).toString('base64');
+
 export class FileCredentials implements CredentialStore {
   path: string;
-  constructor(path = '.data/upstream-credentials.json') {
+  key: Buffer;
+  constructor(pepper: Uint8Array, path = '.data/upstream-credentials.json') {
     this.path = path;
+    this.key = credentialKey(pepper);
     mkdirSync('.data', { recursive: true, mode: 0o700 });
   }
-  async get(id: string): Promise<Credential | undefined> {
+  private read(): Record<string, unknown> {
     return existsSync(this.path)
-      ? JSON.parse(readFileSync(this.path, 'utf8'))[id]
-      : undefined;
-  }
-  async set(id: string, value: Credential | null): Promise<void> {
-    const data = existsSync(this.path)
       ? JSON.parse(readFileSync(this.path, 'utf8'))
       : {};
-    if (value) data[id] = validateCredential(value);
+  }
+  async get(id: string): Promise<Credential | undefined> {
+    const stored = this.read()[id];
+    return stored ? open(this.key, id, stored) : undefined;
+  }
+  async set(id: string, value: Credential | null): Promise<void> {
+    const data = this.read();
+    if (value) data[id] = JSON.parse(seal(this.key, id, value));
     else delete data[id];
     writeFileSync(this.path, JSON.stringify(data), { mode: 0o600 });
   }

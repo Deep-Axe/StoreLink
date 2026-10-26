@@ -1,30 +1,131 @@
 {{- if .Values.networkPolicies.enabled }}
+{{- $name := include "storelink.name" . }}
+{{- $instance := .Release.Name }}
+{{- $ports := dict "gateway" 3000 "time-mcp" 3002 "operations-mcp" 3003 "woo-mcp" 3001 "postgres" 5432 "mariadb" 3306 "wordpress" 8080 }}
+# Only the listed components can connect to the MCP servers, databases and WordPress.
 {{- range $destination, $sources := dict "time-mcp" (list "gateway") "operations-mcp" (list "gateway") "woo-mcp" (list "gateway") "postgres" (list "gateway") "mariadb" (list "wordpress" "store-bootstrap") "wordpress" (list "woo-mcp") }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "storelink.name" $ }}-{{ $destination }}
+  name: {{ $name }}-{{ $destination }}
 spec:
   podSelector:
-    matchLabels: { storelink/component: {{ $destination }}, app.kubernetes.io/instance: {{ $.Release.Name }} }
+    matchLabels: { storelink/component: {{ $destination }}, app.kubernetes.io/instance: {{ $instance }} }
   policyTypes: [Ingress]
   ingress:
     - from:
         {{- range $source := $sources }}
         - podSelector:
-            matchLabels: { storelink/component: {{ $source }}, app.kubernetes.io/instance: {{ $.Release.Name }} }
+            matchLabels: { storelink/component: {{ $source }}, app.kubernetes.io/instance: {{ $instance }} }
         {{- end }}
-      ports:
-        - protocol: TCP
-          port: {{ index (dict "time-mcp" 3002 "operations-mcp" 3003 "woo-mcp" 3001 "postgres" 5432 "mariadb" 3306 "wordpress" 80) $destination }}
+      ports: [{ protocol: TCP, port: {{ index $ports $destination }} }]
     {{- if eq $destination "wordpress" }}
     - from:
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: kube-system }
           podSelector:
             matchLabels: { app.kubernetes.io/name: traefik }
-      ports: [{ protocol: TCP, port: 80 }]
+      ports: [{ protocol: TCP, port: 8080 }]
+    {{- end }}
+{{- end }}
+{{- if .Values.networkPolicies.defaultDeny }}
+---
+# Every pod in the namespace starts with no ingress and no egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-dns
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+{{- range $source, $destinations := dict "woo-mcp" (list "wordpress") "wordpress" (list "mariadb") "store-bootstrap" (list "mariadb") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-{{ $source }}-egress
+spec:
+  podSelector:
+    matchLabels: { storelink/component: {{ $source }}, app.kubernetes.io/instance: {{ $instance }} }
+  policyTypes: [Egress]
+  egress:
+    {{- range $destination := $destinations }}
+    - to:
+        - podSelector:
+            matchLabels: { storelink/component: {{ $destination }}, app.kubernetes.io/instance: {{ $instance }} }
+      ports: [{ protocol: TCP, port: {{ index $ports $destination }} }]
+    {{- end }}
+    {{- if eq $source "wordpress" }}
+    {{- with $.Values.networkPolicies.wordpressEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-gateway
+spec:
+  podSelector:
+    matchLabels: { storelink/component: gateway, app.kubernetes.io/instance: {{ $instance }} }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+      ports: [{ protocol: TCP, port: 3000 }]
+    {{- if and .Values.gateway.metrics.enabled .Values.networkPolicies.metricsFrom }}
+    - from: {{- toYaml .Values.networkPolicies.metricsFrom | nindent 8 }}
+      ports: [{ protocol: TCP, port: {{ .Values.gateway.metrics.port }} }]
+    {{- end }}
+  egress:
+    {{- range $destination := list "postgres" "woo-mcp" "time-mcp" "operations-mcp" }}
+    - to:
+        - podSelector:
+            matchLabels: { storelink/component: {{ $destination }}, app.kubernetes.io/instance: {{ $instance }} }
+      ports: [{ protocol: TCP, port: {{ index $ports $destination }} }]
+    {{- end }}
+    # The credentials Secret is read through the Kubernetes API. Policies see the
+    # API server's real address and port (6443 on k3s), not the Service's 443.
+    - to:
+        {{- range .Values.networkPolicies.kubernetesApi.cidrs }}
+        - ipBlock: { cidr: {{ . }} }
+        {{- end }}
+      ports:
+        {{- range .Values.networkPolicies.kubernetesApi.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+    {{- if .Values.networkPolicies.publicHttps }}
+    # OpenAI and public HTTPS upstreams; private ranges stay closed.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 127.0.0.0/8]
+      ports: [{ protocol: TCP, port: 443 }]
+    {{- end }}
+    {{- with .Values.networkPolicies.gatewayEgress }}
+    {{- toYaml . | nindent 4 }}
     {{- end }}
 {{- end }}
 {{- end }}

@@ -12,6 +12,7 @@ spec:
       labels: { storelink/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
       automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 33, runAsGroup: 33, fsGroup: 33, fsGroupChangePolicy: OnRootMismatch }
       containers:
         - name: wordpress
           image: {{ .Values.images.store | quote }}
@@ -29,10 +30,11 @@ spec:
                 define('WP_SITEURL', getenv('STORE_PUBLIC_URL'));
                 define('DISALLOW_FILE_EDIT', true);
                 define('WP_MEMORY_LIMIT', '256M');
-          ports: [{ containerPort: 80, name: http }]
+          ports: [{ containerPort: 8080, name: http }]
           startupProbe: { tcpSocket: { port: http }, periodSeconds: 2, failureThreshold: 90 }
           readinessProbe: { httpGet: { path: /storelink-health.php, port: http }, periodSeconds: 5, timeoutSeconds: 5, failureThreshold: 3 }
           livenessProbe: { tcpSocket: { port: http }, periodSeconds: 10, failureThreshold: 6 }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           resources: {{ toYaml .Values.store.resources | nindent 12 }}
           volumeMounts:
             - { name: wordpress, mountPath: /var/www/html }
@@ -66,7 +68,7 @@ spec:
     spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
-      securityContext: { runAsUser: 33, runAsGroup: 33, fsGroup: 33 }
+      securityContext: { runAsNonRoot: true, runAsUser: 33, runAsGroup: 33, fsGroup: 33, fsGroupChangePolicy: OnRootMismatch }
       affinity:
         podAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -94,6 +96,7 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: woo-consumer-key } }
             - name: WOO_CONSUMER_SECRET
               valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: woo-consumer-secret } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           resources:
             requests: { cpu: 100m, memory: 192Mi }
             limits: { cpu: "1", memory: 512Mi }

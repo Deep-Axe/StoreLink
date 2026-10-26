@@ -59,8 +59,16 @@ if (store instanceof PostgresStore) {
     ? new KubernetesCredentials(
         process.env.POD_NAMESPACE ?? 'storelink',
         process.env.UPSTREAM_SECRET_NAME,
+        pepper,
       )
-    : new FileCredentials();
+    : new FileCredentials(pepper);
+  if (credentials instanceof KubernetesCredentials)
+    await credentials.sealLegacy().then(
+      (count) => {
+        if (count) console.log(`Encrypted ${count} upstream credential(s)`);
+      },
+      () => console.error('Upstream credentials could not be encrypted'),
+    );
   registry = new Registry(
     store,
     gateway,

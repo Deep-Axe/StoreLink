@@ -12,6 +12,7 @@ spec:
       labels: { storelink/component: postgres, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
       automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, fsGroup: 70, fsGroupChangePolicy: OnRootMismatch }
       containers:
         - name: postgres
           image: {{ .Values.images.postgres | quote }}
@@ -26,6 +27,7 @@ spec:
           startupProbe: { exec: { command: [pg_isready, -U, storelink] }, periodSeconds: 2, failureThreshold: 60 }
           readinessProbe: { exec: { command: [pg_isready, -U, storelink] }, periodSeconds: 5 }
           livenessProbe: { exec: { command: [pg_isready, -U, storelink] }, periodSeconds: 10, failureThreshold: 6 }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           resources: {{ toYaml .Values.postgres.resources | nindent 12 }}
           volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
       volumes:
@@ -54,6 +56,7 @@ spec:
       labels: { storelink/component: mariadb, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
       automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, fsGroupChangePolicy: OnRootMismatch }
       containers:
         - name: mariadb
           image: {{ .Values.images.mariadb | quote }}
@@ -70,6 +73,7 @@ spec:
           startupProbe: { exec: { command: [healthcheck.sh, --connect, --innodb_initialized] }, periodSeconds: 2, failureThreshold: 60 }
           readinessProbe: { exec: { command: [healthcheck.sh, --connect, --innodb_initialized] }, periodSeconds: 5 }
           livenessProbe: { exec: { command: [healthcheck.sh, --connect] }, periodSeconds: 10, failureThreshold: 6 }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           resources: {{ toYaml .Values.mariadb.resources | nindent 12 }}
           volumeMounts: [{ name: data, mountPath: /var/lib/mysql }]
       volumes:

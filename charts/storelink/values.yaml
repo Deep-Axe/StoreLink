@@ -62,4 +62,21 @@ ingress:
     enabled: false
     secretName: storelink-tls
 networkPolicies:
+  # Ingress isolation for the MCP servers, databases and WordPress.
   enabled: true
+  # Deny all other traffic in the namespace, in and out, and allow each path explicitly.
+  # Off while developing; the settings below apply only when it is on.
+  defaultDeny: false
+  # Where the gateway reaches the Kubernetes API, as the API server's own address and
+  # port (6443 on k3s; often 443 on managed clusters). Narrow the CIDR where it is known.
+  kubernetesApi:
+    cidrs: [0.0.0.0/0]
+    ports: [6443]
+  # Gateway egress to public HTTPS (OpenAI and public upstreams).
+  publicHttps: true
+  # Peers allowed to scrape the gateway metrics port, as NetworkPolicy `from` entries.
+  metricsFrom: []
+  # Extra egress rules for the gateway, for example private HTTP upstreams.
+  gatewayEgress: []
+  # Extra egress rules for WordPress, for example plugin updates or WP-Cron over the public URL.
+  wordpressEgress: []

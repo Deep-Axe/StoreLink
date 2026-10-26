@@ -149,7 +149,7 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 
 ### Administration
 
-- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. The gateway pings each server every second, so a stopped or restarting server shows as Unreachable within about a second, and every status change is kept in the connection history. Public HTTPS servers can be added directly. Cluster-internal origins must be listed in `gateway.extraUpstreamOrigins`. Credentials are stored in a Kubernetes Secret and never returned by the API.
+- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. The gateway pings each server every second, so a stopped or restarting server shows as Unreachable within about a second, and every status change is kept in the connection history. Public HTTPS servers can be added directly. Cluster-internal origins must be listed in `gateway.extraUpstreamOrigins`. Credentials are encrypted with AES-256-GCM, stored in a Kubernetes Secret, and never returned by the API.
 - **Access:** invite members, and issue or revoke API keys.
 - **Activity:** the audit log of every tool call, showing user, server, tool, time, duration and outcome.
 
@@ -157,7 +157,7 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 
 Administrators see each server's calls, error rate and average and p95 latency for the last 24 hours on its **Connections** card. The same summary is available as JSON from `GET /api/metrics?hours=<1-168>`.
 
-The gateway serves Prometheus metrics on port `9464` at `/metrics`. The port is reachable inside the cluster only; the Ingress does not route it, and the pod carries `prometheus.io/scrape` annotations. To inspect it locally:
+The gateway serves Prometheus metrics on port `9464` at `/metrics`. The Ingress does not route it, so it is reachable inside the cluster only. With [default-deny network policies](#network-policies) on, a Prometheus server must also be listed in `networkPolicies.metricsFrom`. The pod carries `prometheus.io/scrape` annotations. To inspect it locally:
 
 ```sh
 kubectl -n storelink port-forward svc/storelink-gateway 9464:9464
@@ -178,21 +178,56 @@ For example, the error rate per server over five minutes is `sum by (server) (ra
 
 Common chart values:
 
-| Value                                                                      | Default                                                      | Description                                              |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
-| `chat.enabled`                                                             | `false` (set by `local-up.sh`)                               | Enables the chat agent                                   |
-| `chat.model`                                                               | `gpt-6-luna`                                                 | OpenAI model used by the chat agent                      |
-| `chat.limits.perUserHour`                                                  | `15`                                                         | Chat turns per user per hour                             |
-| `chat.limits.perUserConcurrent` / `perTeamConcurrent` / `globalConcurrent` | `1` / `4` / `16`                                             | Concurrent chat turns                                    |
-| `gateway.extraUpstreamOrigins`                                             | `[]`                                                         | Cluster-internal origins allowed as upstreams            |
-| `gateway.healthIntervalMs`                                                 | `1000`                                                       | Interval between upstream health probes                  |
-| `gateway.metrics.enabled`, `gateway.metrics.port`                          | `true`, `9464`                                               | Prometheus metrics listener inside the cluster           |
-| `store.host`, `gateway.host`                                               | `store.storelink.localhost`, `dashboard.storelink.localhost` | Public hostnames                                         |
-| `store.timezone`                                                           | `Asia/Kolkata`                                               | Store timezone, which defines "today"                    |
-| `storage.className`                                                        | `local-path`                                                 | Storage class for the persistent volumes                 |
-| `ingress.tls.enabled`                                                      | `false`                                                      | Serves both hosts over TLS from `ingress.tls.secretName` |
+| Value                                                                      | Default                                                      | Description                                                                   |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `chat.enabled`                                                             | `false` (set by `local-up.sh`)                               | Enables the chat agent                                                        |
+| `chat.model`                                                               | `gpt-6-luna`                                                 | OpenAI model used by the chat agent                                           |
+| `chat.limits.perUserHour`                                                  | `15`                                                         | Chat turns per user per hour                                                  |
+| `chat.limits.perUserConcurrent` / `perTeamConcurrent` / `globalConcurrent` | `1` / `4` / `16`                                             | Concurrent chat turns                                                         |
+| `gateway.extraUpstreamOrigins`                                             | `[]`                                                         | Cluster-internal origins allowed as upstreams                                 |
+| `gateway.healthIntervalMs`                                                 | `1000`                                                       | Interval between upstream health probes                                       |
+| `gateway.metrics.enabled`, `gateway.metrics.port`                          | `true`, `9464`                                               | Prometheus metrics listener inside the cluster                                |
+| `networkPolicies.enabled`                                                  | `true`                                                       | Only the listed components can reach the MCP servers, databases and WordPress |
+| `networkPolicies.defaultDeny`                                              | `false`                                                      | Deny all other traffic; see [Network policies](#network-policies)             |
+| `store.host`, `gateway.host`                                               | `store.storelink.localhost`, `dashboard.storelink.localhost` | Public hostnames                                                              |
+| `store.timezone`                                                           | `Asia/Kolkata`                                               | Store timezone, which defines "today"                                         |
+| `storage.className`                                                        | `local-path`                                                 | Storage class for the persistent volumes                                      |
+| `ingress.tls.enabled`                                                      | `false`                                                      | Serves both hosts over TLS from `ingress.tls.secretName`                      |
 
 Each chat turn is limited to 8 model rounds, 20 tool calls and 120 seconds.
+
+### Network policies
+
+By default the chart only restricts who can connect to the MCP servers, PostgreSQL, MariaDB and WordPress. All other traffic is open, including outbound internet access, which keeps local development and debugging simple.
+
+Setting `networkPolicies.defaultDeny: true` denies all other traffic in the namespace, in both directions, and allows only the connections each component uses: the gateway reaches PostgreSQL, the MCP servers, the Kubernetes API and public HTTPS; the Woo MCP reaches WordPress; WordPress reaches MariaDB. Anything else is opened through values:
+
+| Value                                           | Default                 | Opens                                                                             |
+| ----------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| `networkPolicies.kubernetesApi.cidrs`, `.ports` | `[0.0.0.0/0]`, `[6443]` | The Kubernetes API for the gateway (narrow to `kubectl get endpoints kubernetes`) |
+| `networkPolicies.publicHttps`                   | `true`                  | Gateway egress to public HTTPS on port 443 (OpenAI, public servers)               |
+| `networkPolicies.metricsFrom`                   | `[]`                    | Scraping the metrics port                                                         |
+| `networkPolicies.gatewayEgress`                 | `[]`                    | Other gateway destinations, such as cluster-internal MCP servers                  |
+| `networkPolicies.wordpressEgress`               | `[]`                    | WordPress outbound traffic, such as plugin updates and WP-Cron                    |
+
+For example:
+
+```yaml
+networkPolicies:
+  defaultDeny: true
+  wordpressEgress:
+    - ports: [{ protocol: TCP, port: 443 }, { protocol: TCP, port: 80 }]
+  metricsFrom:
+    - namespaceSelector:
+        matchLabels: { kubernetes.io/metadata.name: monitoring }
+  gatewayEgress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: my-tools }
+      ports: [{ protocol: TCP, port: 8080 }]
+```
+
+A rule without `to` allows those ports to any destination. `networkPolicies.enabled: false` removes every policy.
 
 ## Production deployment (k3s)
 
@@ -234,7 +269,7 @@ Every `helm upgrade` creates a new release revision. Store, MCP server and gatew
 
 ### 1. Back up the data
 
-Helm versions the Kubernetes manifests, not the data on the persistent volumes. Back up both databases and the WordPress uploads before each upgrade:
+Helm versions the Kubernetes manifests, not the data on the persistent volumes. Back up both databases, the WordPress uploads and the Secrets before each upgrade. Upstream credentials are encrypted with a key derived from the API key pepper, so `storelink-credentials` and `storelink-upstream-credentials` must be restored together:
 
 ```sh
 backup=~/storelink-backups/$(date +%Y%m%d-%H%M%S) && mkdir -p "$backup"
@@ -244,6 +279,8 @@ kubectl -n storelink exec deploy/storelink-mariadb -- \
   sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction --routines wordpress' > "$backup/mariadb.sql"
 kubectl -n storelink exec deploy/storelink-wordpress -- \
   tar -C /var/www/html -czf - wp-content/uploads > "$backup/wordpress-uploads.tgz"
+(umask 077; kubectl -n storelink get secret storelink-credentials storelink-upstream-credentials \
+  -o yaml > "$backup/secrets.yaml")
 ```
 
 ### 2. Upgrade
@@ -274,6 +311,7 @@ A rollback does not undo:
 - **PostgreSQL migrations.** Files in `services/gateway/migrations/` only add tables and columns and are safe to re-run. Older gateway versions run against the newer schema, and the added columns remain after a rollback.
 - **WordPress and WooCommerce database changes.** Plugin or core updates can change the MariaDB schema, and that data is not versioned by Helm.
 - **Data on the persistent volumes.** Orders, products, users, keys and audit records written after the upgrade remain in `storelink-postgres`, `storelink-mariadb` and `storelink-wordpress`.
+- **Encrypted upstream credentials.** Gateways from releases before credential encryption cannot read the encrypted entries, so rolling back past that change leaves every upstream Unreachable. Restore `secrets.yaml` from a backup taken before the upgrade (see below), or re-enter the credentials in the dashboard.
 
 ### 4. Restore data
 
@@ -286,8 +324,11 @@ kubectl -n storelink exec -i deploy/storelink-mariadb -- \
   sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" wordpress' < "$backup/mariadb.sql"
 kubectl -n storelink exec -i deploy/storelink-wordpress -- \
   tar -C /var/www/html -xzf - < "$backup/wordpress-uploads.tgz"
+kubectl -n storelink replace --force -f "$backup/secrets.yaml"
 kubectl -n storelink rollout restart deploy/storelink-gateway deploy/storelink-wordpress
 ```
+
+`replace --force` recreates both Secrets from the backup; `kubectl apply` of the same file is rejected because the Secrets have changed since. The uploads restore brings back missing and changed files but leaves files added after the backup.
 
 ## Development
 
@@ -314,14 +355,14 @@ The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` 
 
 ## Stand-out items
 
-| Item                     | Status                                 |
-| ------------------------ | -------------------------------------- |
-| #1 VPS deployment        | Documented and templated, not deployed |
-| #6 Security hardening    | Partial                                |
-| #7 Scaling               | Partial: rate and concurrency limits   |
-| #8 Observability         | Implemented                            |
-| #9 Upgrades and rollback | Documented and rehearsed               |
-| #2–#5, multi-store bonus | Not attempted                          |
+| Item                     | Status                                   |
+| ------------------------ | ---------------------------------------- |
+| #1 VPS deployment        | Documented and templated, not deployed   |
+| #6 Security hardening    | Implemented; default-deny off by default |
+| #7 Scaling               | Partial: rate and concurrency limits     |
+| #8 Observability         | Implemented                              |
+| #9 Upgrades and rollback | Documented and rehearsed                 |
+| #2–#5, multi-store bonus | Not attempted                            |
 
 [Verification](docs/verification.md#stand-out-items-and-additional-features) lists what each item covers and where it is implemented, along with additional features such as catalog change notifications, per-user conversations with token accounting, and single-use invitations.
 

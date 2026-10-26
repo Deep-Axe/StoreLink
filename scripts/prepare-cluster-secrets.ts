@@ -2,6 +2,10 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { generateApiKey } from '../packages/shared/src/api-keys.ts';
+import {
+  credentialKey,
+  sealCredential,
+} from '../packages/shared/src/credential-cipher.ts';
 import { parseEnv } from 'node:util';
 import { join } from 'node:path';
 import { kubectlCommand } from './lib/kubectl.ts';
@@ -116,16 +120,21 @@ const upstream = JSON.parse(
   ]) || 'null',
 );
 const upstreamData = upstream?.data ?? {};
+const sealingKey = credentialKey(Buffer.from(data['api-key-pepper'], 'base64'));
 for (const [id, key] of [
   ['woo', 'woo-mcp-token'],
   ['time', 'time-mcp-token'],
   ['ops', 'operations-mcp-token'],
 ]) {
   upstreamData[id] ??= Buffer.from(
-    JSON.stringify({
-      header: 'authorization',
-      value: `Bearer ${Buffer.from(data[key], 'base64').toString('utf8')}`,
-    }),
+    sealCredential(
+      sealingKey,
+      id,
+      JSON.stringify({
+        header: 'authorization',
+        value: `Bearer ${Buffer.from(data[key], 'base64').toString('utf8')}`,
+      }),
+    ),
   ).toString('base64');
 }
 run(
