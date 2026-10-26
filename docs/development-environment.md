@@ -1,48 +1,46 @@
 # Development Environment
 
-Verified on 2026-10-19. Docker group membership, daemon access, outbound package access, and browser execution now work in this session.
-
 ## Host tools
 
-| Tool                | Verified installation                                                              |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| Node.js / npm       | 24.22.0 / 11.19.1                                                                  |
-| Docker Engine       | 29.9.1; `docker run --rm hello-world` succeeds                                     |
-| Helm                | 4.3.1                                                                              |
-| k3d                 | 5.9.0; default k3s 1.35.5                                                          |
-| kubectl             | Host version 1.37.1; matching project-local version 1.35.9 at `.tools/bin/kubectl` |
-| Google Chrome       | 154.0.8037.92; Playwright headless launch succeeds                                 |
-| Build prerequisites | Git, curl, Python 3, make, and GCC are available                                   |
+| Tool          | Version / notes                                        |
+| ------------- | ------------------------------------------------------ |
+| Node.js / npm | 24.x (`>=24.5.0`) / 11.x                               |
+| Docker Engine | 29.x with daemon access for building and k3d           |
+| Helm          | 4.3.x                                                  |
+| k3d           | 5.9.x (runs k3s 1.35.x)                                |
+| kubectl       | 1.35.x matching the cluster minor version              |
+| Google Chrome | Used by Playwright (`channel: 'chrome'`)               |
+| Build tools   | Git, curl, Python 3, make, and GCC (for native addons) |
 
-Use `.tools/bin/kubectl` with the default k3d cluster. The host's kubectl 1.37 is two minor versions newer than that cluster; Kubernetes supports kubectl within one minor version of the API server. The install helper now selects the k3d default's minor version, or accepts `STORELINK_KUBECTL_VERSION` when a different cluster image is chosen. [Kubernetes version policy](https://kubernetes.io/releases/version-skew-policy/)
+`scripts/install-dev-tools.sh` downloads Node 24, Helm, k3d, and a `kubectl` binary matching the k3d Kubernetes minor version into `.tools/bin`. Set `STORELINK_KUBECTL_VERSION` to pick a specific `kubectl` release, or `STORELINK_KUBECTL` to point scripts at a custom binary path.
 
-## Project packages
+## Workspace packages
 
-The workspace manifests and `package-lock.json` include:
+- **Gateway (`services/gateway`):** Express 5, `@modelcontextprotocol/sdk`, OpenAI SDK, `pg`, Argon2, Zod, Ajv, `ipaddr.js`, and `undici`.
+- **Dashboard (`apps/dashboard`):** React 19 and Vite. The production bundle is built into `apps/dashboard/dist` and served by the gateway.
+- **MCP servers (`services/woocommerce-mcp`, `services/time-mcp`, `services/operations-mcp`):** `@modelcontextprotocol/sdk`, Express, Zod, and `@js-temporal/polyfill`.
+- **Tooling and tests:** TypeScript, Prettier, ESLint, Node's built-in test runner, Playwright, and `@modelcontextprotocol/inspector`.
 
-- **Gateway:** OpenAI SDK, PostgreSQL driver (`pg`), Drizzle ORM, and Argon2 password hashing.
-- **Dashboard:** React and React DOM; Vite and the React plugin are available as development tools. The React dashboard is built and served by the gateway image.
-- **Existing MCP services:** official MCP SDK 1.28.0, Express, Zod, Ajv, and format validation.
-- **Development:** TypeScript and Node/Express/PostgreSQL/React types, Drizzle Kit, ESLint/typescript-eslint, and Prettier.
-- **Testing:** the existing Node test runner, Vitest, jsdom, Testing Library, Playwright, and MCP Inspector.
+Node 24 runs the TypeScript sources directly. `package.json` whitelists build scripts for `argon2`, `esbuild`, and `@modelcontextprotocol/inspector`.
 
-Required Argon2, esbuild, and Inspector installation scripts were enabled for their installed versions and rebuilt successfully. Argon2id hashing/verification, application package imports, and a React/Vite production-bundle smoke check pass. Browser checks use the installed Chrome through Playwright's `channel: 'chrome'`; no additional browser download is required for that configuration.
-
-## Reproduce checks
+## Local checks
 
 ```sh
 scripts/install-dependencies.sh
 npm run typecheck
 npm test
+npm run build:dashboard
 npm run format:check
 ```
 
-The helper prefers an existing Node 24 installation over the older project-local fallback. TypeScript runs without emitting JavaScript; Node 24 executes the current TypeScript sources directly.
+## Local cluster
 
-## Cluster and remaining setup
+`scripts/local-up.sh` creates the `storelink` k3d cluster, writes the kubeconfig to `.data/kubeconfig`, generates credentials into `.data/cluster-secrets.json` and the `storelink-credentials` Kubernetes Secret, builds and imports the container images, and installs `charts/storelink`.
 
-No further host packages are needed for the implemented core. The `storelink` k3d cluster is running with private kubeconfig `.data/kubeconfig`; use `KUBECONFIG="$PWD/.data/kubeconfig" .tools/bin/kubectl -n storelink get pods`. The root README documents reproducible image builds, Helm installation and credentials retrieval.
+```sh
+scripts/local-up.sh
+export KUBECONFIG="$PWD/.data/kubeconfig"
+.tools/bin/kubectl -n storelink get pods
+```
 
-WordPress/WooCommerce, MariaDB, PostgreSQL, the gateway/dashboard and three MCP services are deployed. Real COD checkout, OAuth REST calls, persisted audits and browser access controls have passed. Native Argon2 and React production builds run inside the application images too. No host databases or Python virtual environment are needed.
-
-The supplied OpenAI key/model access and the real dashboard/external-agent tool loop have now passed live acceptance. The key is in an ignored local file and a mounted Kubernetes Secret. See [verification](verification.md) for current evidence and remaining gates. No paid services have been provisioned.
+Set `OPENAI_API_KEY` in `.env` before running `scripts/local-up.sh` to enable dashboard chat in the cluster. For UI work against a running cluster, `npm run dev:dashboard` starts the Vite dev server and proxies `/api` requests to `http://dashboard.storelink.localhost` (or `STORELINK_DEV_BACKEND`).
