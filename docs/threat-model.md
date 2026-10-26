@@ -46,8 +46,8 @@ Within a team, members share the store and upstream tool catalog:
 
 ## Cluster and storage boundaries
 
-- **NetworkPolicies (`charts/storelink/templates/network-policies.yaml`):** `woo-mcp`, `time-mcp`, `operations-mcp` and `postgres` accept connections only from `gateway`. `mariadb` accepts only `wordpress` and `store-bootstrap`, and `wordpress` accepts only `woo-mcp` and Traefik. All other traffic, including outbound internet access, is open by default for development.
-- **Default-deny mode (`networkPolicies.defaultDeny: true`, off by default):** every pod in the namespace starts with no ingress and no egress, and all pods may query CoreDNS. On top of that:
+- **NetworkPolicies (`charts/storelink/templates/network-policies.yaml`):** `woo-mcp`, `time-mcp`, `operations-mcp` and `postgres` accept connections only from `gateway`. `mariadb` accepts only `wordpress` and `store-bootstrap`, and `wordpress` accepts only `woo-mcp` and Traefik.
+- **Default deny (`networkPolicies.defaultDeny`, on by default):** every pod in the namespace starts with no ingress and no egress, and all pods may query CoreDNS. On top of that:
   - **Ingress:** the rules above, plus `gateway` accepting only Traefik (and `networkPolicies.metricsFrom` on the metrics port).
   - **Egress:** `gateway` reaches `postgres`, the three MCP servers, the Kubernetes API (`networkPolicies.kubernetesApi`) and public HTTPS on port 443, with private address ranges excluded. `woo-mcp` reaches only `wordpress`, and `wordpress` and `store-bootstrap` reach only `mariadb`. `time-mcp`, `operations-mcp`, `postgres` and `mariadb` have no egress beyond DNS.
   - **Result:** a compromised MCP server, WordPress or database pod cannot reach the internet, PostgreSQL, the gateway or the other store components. WordPress has no internet access unless `networkPolicies.wordpressEgress` opens it.

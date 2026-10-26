@@ -149,7 +149,7 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 
 ### Administration
 
-- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. The gateway pings each server every second, so a stopped or restarting server shows as Unreachable within about a second, and every status change is kept in the connection history. Public HTTPS servers can be added directly. Cluster-internal origins must be listed in `gateway.extraUpstreamOrigins`. Credentials are encrypted with AES-256-GCM, stored in a Kubernetes Secret, and never returned by the API.
+- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. The gateway pings each server every second, so a stopped or restarting server shows as Unreachable within about a second, and every status change is kept in the connection history. Public HTTPS servers can be added directly. A cluster-internal server needs its origin in `gateway.extraUpstreamOrigins` and a matching `networkPolicies.gatewayEgress` rule; public servers must use port 443. Credentials are encrypted with AES-256-GCM, stored in a Kubernetes Secret, and never returned by the API.
 - **Access:** invite members, and issue or revoke API keys.
 - **Activity:** the audit log of every tool call, showing user, server, tool, time, duration and outcome.
 
@@ -157,7 +157,7 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 
 Administrators see each server's calls, error rate and average and p95 latency for the last 24 hours on its **Connections** card. The same summary is available as JSON from `GET /api/metrics?hours=<1-168>`.
 
-The gateway serves Prometheus metrics on port `9464` at `/metrics`. The Ingress does not route it, so it is reachable inside the cluster only. With [default-deny network policies](#network-policies) on, a Prometheus server must also be listed in `networkPolicies.metricsFrom`. The pod carries `prometheus.io/scrape` annotations. To inspect it locally:
+The gateway serves Prometheus metrics on port `9464` at `/metrics`. The Ingress does not route it, so it is reachable inside the cluster only. The [network policies](#network-policies) also close it to other pods, so a Prometheus server must be listed in `networkPolicies.metricsFrom`. The pod carries `prometheus.io/scrape` annotations. To inspect it locally:
 
 ```sh
 kubectl -n storelink port-forward svc/storelink-gateway 9464:9464
@@ -188,7 +188,7 @@ Common chart values:
 | `gateway.healthIntervalMs`                                                 | `1000`                                                       | Interval between upstream health probes                                       |
 | `gateway.metrics.enabled`, `gateway.metrics.port`                          | `true`, `9464`                                               | Prometheus metrics listener inside the cluster                                |
 | `networkPolicies.enabled`                                                  | `true`                                                       | Only the listed components can reach the MCP servers, databases and WordPress |
-| `networkPolicies.defaultDeny`                                              | `false`                                                      | Deny all other traffic; see [Network policies](#network-policies)             |
+| `networkPolicies.defaultDeny`                                              | `true`                                                       | Deny all other traffic; see [Network policies](#network-policies)             |
 | `store.host`, `gateway.host`                                               | `store.storelink.localhost`, `dashboard.storelink.localhost` | Public hostnames                                                              |
 | `store.timezone`                                                           | `Asia/Kolkata`                                               | Store timezone, which defines "today"                                         |
 | `storage.className`                                                        | `local-path`                                                 | Storage class for the persistent volumes                                      |
@@ -198,9 +198,7 @@ Each chat turn is limited to 8 model rounds, 20 tool calls and 120 seconds.
 
 ### Network policies
 
-By default the chart only restricts who can connect to the MCP servers, PostgreSQL, MariaDB and WordPress. All other traffic is open, including outbound internet access, which keeps local development and debugging simple.
-
-Setting `networkPolicies.defaultDeny: true` denies all other traffic in the namespace, in both directions, and allows only the connections each component uses: the gateway reaches PostgreSQL, the MCP servers, the Kubernetes API and public HTTPS; the Woo MCP reaches WordPress; WordPress reaches MariaDB. Anything else is opened through values:
+The chart denies all traffic in the namespace, in both directions, and allows only the connections each component uses: the gateway reaches PostgreSQL, the MCP servers, the Kubernetes API and public HTTPS; the Woo MCP reaches WordPress; WordPress reaches MariaDB. Traefik reaches the gateway and WordPress. WordPress has no internet access, so plugin updates and WP-Cron requests to the public store URL fail until they are opened. Anything else is opened through values:
 
 | Value                                           | Default                 | Opens                                                                             |
 | ----------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
@@ -214,7 +212,6 @@ For example:
 
 ```yaml
 networkPolicies:
-  defaultDeny: true
   wordpressEgress:
     - ports: [{ protocol: TCP, port: 443 }, { protocol: TCP, port: 80 }]
   metricsFrom:
@@ -227,7 +224,7 @@ networkPolicies:
       ports: [{ protocol: TCP, port: 8080 }]
 ```
 
-A rule without `to` allows those ports to any destination. `networkPolicies.enabled: false` removes every policy.
+A rule without `to` allows those ports to any destination. For development or debugging, `networkPolicies.defaultDeny: false` keeps only the ingress rules that protect the MCP servers, databases and WordPress and leaves all other traffic open; `networkPolicies.enabled: false` removes every policy.
 
 ## Production deployment (k3s)
 
@@ -355,14 +352,14 @@ The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` 
 
 ## Stand-out items
 
-| Item                     | Status                                   |
-| ------------------------ | ---------------------------------------- |
-| #1 VPS deployment        | Documented and templated, not deployed   |
-| #6 Security hardening    | Implemented; default-deny off by default |
-| #7 Scaling               | Partial: rate and concurrency limits     |
-| #8 Observability         | Implemented                              |
-| #9 Upgrades and rollback | Documented and rehearsed                 |
-| #2–#5, multi-store bonus | Not attempted                            |
+| Item                     | Status                                 |
+| ------------------------ | -------------------------------------- |
+| #1 VPS deployment        | Documented and templated, not deployed |
+| #6 Security hardening    | Implemented                            |
+| #7 Scaling               | Partial: rate and concurrency limits   |
+| #8 Observability         | Implemented                            |
+| #9 Upgrades and rollback | Documented and rehearsed               |
+| #2–#5, multi-store bonus | Not attempted                          |
 
 [Verification](docs/verification.md#stand-out-items-and-additional-features) lists what each item covers and where it is implemented, along with additional features such as catalog change notifications, per-user conversations with token accounting, and single-use invitations.
 
