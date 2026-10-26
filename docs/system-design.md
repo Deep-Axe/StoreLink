@@ -31,7 +31,7 @@ The gateway runs as two replicas behind one Service. PostgreSQL is the only shar
 
 ## Store integration
 
-`services/woocommerce-mcp` talks to the store through the WooCommerce `wc/v3` REST API so product creation and order updates go through WooCommerce's own validation, hooks and totals calculation. During cluster bootstrap, WP-CLI and `images/store/configure.php` install WordPress and WooCommerce, configure the store timezone and Cash on Delivery, seed a demo product, and provision the WooCommerce REST API key.
+`services/woocommerce-mcp` talks to the store through the WooCommerce `wc/v3` REST API so product creation and order updates go through WooCommerce's own validation, hooks and totals calculation. During cluster bootstrap, WP-CLI and `images/store/configure.php` install WordPress and WooCommerce, configure the store timezone and Cash on Delivery, seed a sample product, and provision the WooCommerce REST API key.
 
 In both local and production deployments, the adapter calls WordPress over cluster-internal HTTP signed with OAuth 1.0a HMAC-SHA256 (`services/woocommerce-mcp/src/store-client.ts`):
 

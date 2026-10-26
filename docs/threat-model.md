@@ -11,11 +11,11 @@ Team members never see the WooCommerce consumer key/secret or upstream bearer to
 
 Hiding credentials does not restrict what an enabled tool can do. Because the gateway authenticates to WooCommerce with a shared `shop_manager` key, any member who can call `woo__create_product` or `woo__update_order_status` can create published products or change order statuses on the shared store. To limit unnecessary exposure:
 
-- The WooCommerce MCP server exposes only the five required product and order tools (no user, plugin, settings or webhook endpoints).
+- The WooCommerce MCP server exposes five product and order tools: list products, create product, list orders, get order and update order status. It does not expose user, plugin, settings or webhook endpoints.
 - Order responses strip customer billing/shipping addresses, email addresses and phone numbers (`services/woocommerce-mcp/src/server.ts`).
 - Every tool invocation is logged in `audit_calls` with the calling gateway user and API key before the upstream request is sent.
 
-## Why client tokens are terminated at the gateway
+## Client tokens stay at the gateway
 
 External clients authenticate to `/mcp` with a per-user gateway API key (`storelink_...`), and browser users authenticate to `/api/*` with a session cookie. The gateway terminates those credentials and attaches only the target upstream's configured static header when forwarding a tool call:
 
@@ -36,7 +36,7 @@ Mitigations in place:
 
 Prompt injection remains an inherent risk whenever an LLM processes untrusted tool output alongside write-capable tools: a malicious upstream could still steer the model into calling another enabled tool during the same turn. Administrators should only register upstreams they trust with the team's enabled tool catalog.
 
-## What one team member can do to another
+## Member isolation
 
 Within a team, members share the store and upstream tool catalog:
 

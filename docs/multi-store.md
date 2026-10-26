@@ -48,7 +48,7 @@ stores:
 
 Point wildcard DNS `*.stores.example.com` at the VPS Ingress. Install cert-manager using its [official Helm instructions](https://cert-manager.io/docs/installation/helm/) and configure the named ClusterIssuer first. For HTTP-01, its solver must use your Ingress class (Traefik by default) and the public hostnames must resolve to that Ingress. The generated Ingress annotation asks ingress-shim to create a Certificate and TLS Secret **inside each store namespace**, rather than referring to the base namespace's Secret. See the [official cert-manager Ingress guide](https://cert-manager.io/docs/usage/ingress/). HTTPS store configuration without the issuer/Secret settings fails Helm rendering. Certificate delays appear as pending TLS and eventually a bounded failure, rather than a false Ready state.
 
-Public DNS, issuer credentials and VPS provisioning are operator setup. No domain or VPS was purchased, and real public certificate issuance has not been exercised by the local acceptance test. Local stores use HTTP on `*.store.storelink.localhost`.
+Public DNS and the issuer contact address are operator setup. Local stores use HTTP on `*.store.storelink.localhost`. A single-node k3s deployment has issued a Let's Encrypt certificate for the platform hostnames through this ClusterIssuer. See [Public TLS](../README.md#public-tls).
 
 ## Backups and upgrades
 
@@ -66,7 +66,7 @@ kubectl -n "$namespace" exec deploy/wordpress -- \
 kubectl -n "$namespace" get secret store-credentials -o yaml > "$backup/credentials.yaml"
 ```
 
-Take a coordinated backup with writers quiesced if database/files consistency is required. Before restoring, pause the provisioner and store writers, restore matching database/files/Secrets, then restart store pods and reconciliation. Preserve the original store row/ID and platform pepper so the MCP token and encrypted credential agree. cert-manager can reissue certificates; also back up the issuer/account configuration according to its recovery procedure. Test restores in an isolated environment before relying on backups. The local bonus check tests controller restart recovery, not disaster recovery from these backups.
+Take a coordinated backup with writers quiesced if database/files consistency is required. Before restoring, pause the provisioner and store writers, restore matching database/files/Secrets, then restart store pods and reconciliation. Preserve the original store row/ID and platform pepper so the MCP token and encrypted credential agree. cert-manager can reissue certificates; also back up the issuer/account configuration according to its recovery procedure. Test restores in an isolated environment before relying on backups. `scripts/smoke-multistore.ts` covers controller restart recovery. Restoring these backups is a separate operation.
 
 Changing the platform app/store images affects future stores and retries; Ready stores are not silently upgraded by this controller. Plan explicit per-store migrations and backups for existing stores. Helm rollback restores platform manifests; it does not roll back provisioned namespace data or database schemas.
 
@@ -74,4 +74,4 @@ Changing the platform app/store images affects future stores and retries; Ready 
 
 Run `node scripts/smoke-multistore.ts` on the configured local cluster. It acquires the shared cluster lock, requires no existing additional stores, creates temporary stores and real COD orders, and makes **one paid, read-only OpenAI chat turn**. Its cleanup removes its stores while retaining the attributed audit history and chat evidence.
 
-The check verifies real concurrent admission, browser create/list/retry/delete, member ownership, a forced terminal bootstrap failure followed by retry, provisioner restart, unchanged credentials, two-store MCP discovery, blocked cross-store traffic, today's-order comparison, stale-tool refusal, surviving-store availability and namespace/PV cleanup. Evidence is saved privately to `.data/multi-store-evidence.json`; screenshots are in `.cache/multi-store-*.png`.
+The check covers concurrent admission, browser create/list/retry/delete, member ownership, a forced terminal bootstrap failure followed by retry, provisioner restart, unchanged credentials, two-store MCP discovery, blocked cross-store traffic, today's-order comparison, stale-tool refusal, surviving-store availability and namespace/PV cleanup. Results go to `.data/multi-store-evidence.json`. Screenshots go to `.cache/multi-store-*.png`.

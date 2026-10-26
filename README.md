@@ -150,7 +150,7 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 
 ### Provision additional stores
 
-Open **Stores → Create store**, choose a name and short address, and wait for Ready. Members manage their own stores; admins manage their team’s stores. Each store gets independent persistent data and a tool prefix such as `woo-north__*`. Retry failed setup or confirm deletion from its card. Defaults allow two stores per user and three per team; Failed/Deleting stores count until removal finishes. See [multi-store setup, production TLS, backups and acceptance](docs/multi-store.md).
+Open **Stores → Create store**, choose a name and short address, and wait for Ready. Members manage their own stores; admins manage their team’s stores. Each store gets independent persistent data and a tool prefix such as `woo-north__*`. Retry failed setup or confirm deletion from its card. Defaults allow two stores per user and three per team; Failed/Deleting stores count until removal finishes. See [multi-store setup, production TLS and backups](docs/multi-store.md).
 
 ### Administration
 
@@ -261,7 +261,7 @@ The same chart deploys to a single-node k3s server. The differences are in `valu
 
    Provide `OPENAI_API_KEY` in the environment and set `chat.enabled: true` in your values file.
 
-5. Create the TLS Secret and install the chart:
+5. Install the chart once `storelink-tls` exists. A purchased certificate can be loaded by hand, or [cert-manager](#public-tls) can create that Secret:
 
    ```sh
    kubectl -n storelink create secret tls storelink-tls --cert=fullchain.pem --key=privkey.pem
@@ -270,6 +270,47 @@ The same chart deploys to a single-node k3s server. The differences are in `valu
    ```
 
 6. Schedule backups of PostgreSQL, MariaDB, WordPress uploads and Secrets, and enable Secret encryption at rest.
+
+### Public TLS
+
+The storefront and dashboard Ingresses share `ingress.tls.secretName` (`storelink-tls` in `values-prod.yaml`). cert-manager can fill that Secret from Let's Encrypt.
+
+Install cert-manager, then a `ClusterIssuer` named `letsencrypt-prod`. Its ACME server is `https://acme-v02.api.letsencrypt.org/directory`, and its solver is HTTP-01 on ingress class `traefik`. The account key stays in a Secret named by `privateKeySecretRef`. A `Certificate` in the `storelink` namespace lists the storefront and dashboard hostnames and writes `storelink-tls`. DNS for both names must reach the ingress, and port 80 must stay open for the challenge.
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ops@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: storelink-tls
+  namespace: storelink
+spec:
+  secretName: storelink-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - store.example.com
+    - dashboard.example.com
+```
+
+Additional stores do not reuse that Secret. With `stores.scheme: https`, `stores.tlsSecretName: storefront-tls` and `stores.tlsClusterIssuer: letsencrypt-prod`, each store Ingress is annotated `cert-manager.io/cluster-issuer` and gets its own Certificate inside its namespace (`services/gateway/src/store-manifests.ts`). The store stays out of Ready until that Certificate is Ready. The store NetworkPolicy allows Traefik to reach the HTTP-01 solver. Details are in [multi-store DNS and TLS](docs/multi-store.md#production-dns-and-tls).
+
+A single-node k3s deployment issued one Let's Encrypt certificate whose subject alternative names were the storefront and the dashboard. The chain verified, both sites answered over HTTPS, and `/mcp` rejected a call with no API key. DNS for that run used sslip.io records for the instance address. That host is no longer running.
 
 ## Upgrades and rollback
 
@@ -363,26 +404,12 @@ node --env-file=.env scripts/smoke-chat.ts  # live chat flow (uses the OpenAI AP
 
 The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` starts Vite with API requests proxied to the deployed gateway. Scripts that modify the cluster take a shared lock; wrap manual changes with `node scripts/with-cluster-lock.ts -- <command>`.
 
-MCP sessions and rate-limit counters are stored in PostgreSQL, so they survive redeploys: sessions last 15 minutes after their last use, login counters 15 minutes and the chat quota an hour. Rehearsals therefore use up part of the next hour's chat and login allowance. To start a demo from zero:
+MCP sessions and rate-limit counters are stored in PostgreSQL, so they survive redeploys: sessions last 15 minutes after their last use, login counters 15 minutes and the chat quota an hour. Repeated checks use part of the next hour's chat and login allowance. To clear sessions and rate-limit counters:
 
 ```sh
 kubectl -n storelink exec deploy/storelink-postgres -- \
   psql -U storelink -d storelink -c 'DELETE FROM mcp_sessions; DELETE FROM rate_limits;'
 ```
-
-## Stand-out items
-
-| Item                     | Status                                   |
-| ------------------------ | ---------------------------------------- |
-| #1 VPS deployment        | Documented and templated, not deployed   |
-| #6 Security hardening    | Implemented; default-deny off by default |
-| #7 Scaling               | Implemented                              |
-| #8 Observability         | Implemented                              |
-| #9 Upgrades and rollback | Documented and rehearsed                 |
-| Multi-store bonus        | Implemented and verified locally         |
-| #2–#5                    | Not attempted                            |
-
-[Verification](docs/verification.md#stand-out-items-and-additional-features) lists what each item covers and where it is implemented, along with additional features such as catalog change notifications, per-user conversations with token accounting, and single-use invitations.
 
 ## Documentation
 
