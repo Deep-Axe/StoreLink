@@ -156,12 +156,14 @@ try {
     'deployment/storelink-operations-mcp',
     '--timeout=90s',
   );
+  // Each gateway replica probes upstreams itself, so wait until a call succeeds
+  // rather than trusting a catalog that another replica may have served.
   await until(async () =>
     (await client.listTools()).tools.some(
       (tool) => tool.name === 'ops__get_status',
     ),
   );
-  assert.ok(!(await call('ops__get_status')).isError);
+  await until(async () => !(await call('ops__get_status')).isError);
   console.log('Upstream recovered and its namespaced tools returned.');
   time = (await api<Server[]>('/servers')).find(
     (server) => server.id === 'time',

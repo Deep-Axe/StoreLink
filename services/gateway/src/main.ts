@@ -37,10 +37,12 @@ const mcpHandler = gatewayHttpHandler(gateway, origin, {
       ? new PostgresSessions(store.pool)
       : undefined,
 });
+let draining = false;
 const app = expressMcpApp(mcpHandler, origin, () =>
-  store instanceof PostgresStore ? store.health() : true,
+  draining ? false : store instanceof PostgresStore ? store.health() : true,
 );
 let registry: Registry | undefined;
+let stopListening: (() => Promise<void>) | undefined;
 let developmentClient: ReturnType<typeof upstreamClient> | undefined;
 if (store instanceof PostgresStore) {
   const teamId = process.env.TEAM_ID ?? 'development';
@@ -89,6 +91,9 @@ if (store instanceof PostgresStore) {
   );
   await registry.seed(teamId, defaults);
   await registry.sync();
+  const current = registry;
+  gateway.beforeRequest = () => current.ensureCurrent();
+  stopListening = registry.listen(secret('DATABASE_URL'));
   const model =
     process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_FILE
       ? openaiModel(secret('OPENAI_API_KEY'))
@@ -198,6 +203,7 @@ const health = setInterval(
     checking = true;
     void (async () => {
       try {
+        await registry?.ensureCurrent();
         await Promise.all(
           [...gateway.upstreams.keys()].map((id) => gateway.checkHealth(id)),
         );
@@ -218,11 +224,25 @@ const health = setInterval(
 health.unref();
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.once(signal, async () => {
+    // Report not ready and keep serving while the Service and Ingress stop
+    // routing here, then let in-flight requests finish before closing.
+    draining = true;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Number(process.env.SHUTDOWN_DELAY_MS ?? 0)),
+    );
     clearInterval(refresh);
     clearInterval(health);
-    server.close();
-    metricsServer?.close();
+    const closed = new Promise((resolve) => server.close(resolve));
+    server.closeIdleConnections();
+    // Event streams stay open indefinitely; their clients resume on another replica.
+    await Promise.race([
+      closed,
+      new Promise((resolve) => setTimeout(resolve, 10000)),
+    ]);
     await mcpHandler.close();
+    server.closeAllConnections();
+    metricsServer?.close();
+    await stopListening?.();
     await registry?.close();
     await developmentClient?.close();
     await store.close();

@@ -20,7 +20,6 @@ type Local = {
   server: Server;
   transport: WebStandardStreamableHTTPServerTransport;
   lastUsed: number;
-  ready: boolean;
 };
 
 export function gatewayHttpHandler(
@@ -76,7 +75,7 @@ export function gatewayHttpHandler(
         await store.delete(id);
       },
     });
-    return { actor, server, transport, lastUsed: now(), ready: false };
+    return { actor, server, transport, lastUsed: now() };
   }
   // Replays the client's initialize handshake into a new local server.
   async function resume(record: McpSessionRecord, actor: Identity) {
@@ -121,7 +120,6 @@ export function gatewayHttpHandler(
         );
         if (!ready.ok) throw new Error('Resume failed');
       }
-      local.ready = record.ready;
       return local;
     } catch (error) {
       await local.server.close();
@@ -146,15 +144,16 @@ export function gatewayHttpHandler(
   const unsubscribe = gateway.onCatalogChanged((teamId) => {
     void Promise.allSettled(
       [...locals]
-        .filter(([, s]) => s.ready && s.actor.teamId === teamId)
+        .filter(([, local]) => local.actor.teamId === teamId)
         .map(async ([id, local]) => {
-          if (
-            !(await store.get(id, now(), ttl)) ||
-            !(await gateway.store.isActive(local.actor))
-          ) {
+          // Readiness comes from the store: the client may have completed the
+          // handshake through another replica.
+          const record = await store.get(id, now(), ttl);
+          if (!record || !(await gateway.store.isActive(local.actor))) {
             await drop(id);
             return;
           }
+          if (!record.ready) return;
           await local.server.notification({
             method: 'notifications/tools/list_changed',
           });
@@ -243,10 +242,8 @@ export function gatewayHttpHandler(
       const response = await local.transport.handleRequest(request, {
         parsedBody: body,
       });
-      if (rpc?.method === 'notifications/initialized' && response.ok) {
-        local.ready = true;
+      if (rpc?.method === 'notifications/initialized' && response.ok)
         await store.touch(id, now(), true);
-      }
       return response;
     }
     if (request.method !== 'POST' || !isInitializeRequest(body))

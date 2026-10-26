@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { DevelopmentStore } from '../services/gateway/src/store.ts';
 import { Gateway } from '../services/gateway/src/gateway.ts';
 import { gatewayHttpHandler } from '../services/gateway/src/mcp.ts';
@@ -145,4 +146,42 @@ test('a replica rebuilds a session after losing its local copy', async (t) => {
     text(await client.callTool({ name: 'time__status', arguments: {} })).length,
     3,
   );
+});
+
+test('a registry change applied before routing reaches the next call', async (t) => {
+  const f = await setup(t);
+  const { client } = await f.connect();
+  // Simulates the other replica's change: the check disables the server first.
+  for (const replica of f.replicas)
+    replica.gateway.beforeRequest = async () => {
+      if (replica.gateway.upstreams.get('time')!.enabled)
+        replica.gateway.setEnabled('time', false);
+    };
+  const result = await client.callTool({ name: 'time__status', arguments: {} });
+  assert.equal(result.isError, true);
+  assert.equal((await client.listTools()).tools.length, 0);
+});
+
+test('a replica notifies a stream whose handshake finished on the other replica', async (t) => {
+  const f = await setup(t);
+  let notified = 0;
+  const { client } = await f.connect();
+  client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    notified++;
+  });
+  const end = Date.now() + 2000;
+  while (!f.served.some((r) => r.startsWith('GET'))) {
+    assert.ok(Date.now() < end);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  // The replica holding the event stream did not receive notifications/initialized.
+  const holder = f.served.find((r) => r.startsWith('GET'))!.split(' ')[1];
+  const handshake = f.served.filter((r) => r.startsWith('POST')).slice(0, 2);
+  assert.equal(handshake[1], `POST ${holder === 'one' ? 'two' : 'one'}`);
+  const replica = f.replicas.find((r) => r.name === holder)!;
+  replica.gateway.setEnabled('time', false);
+  while (notified === 0) {
+    assert.ok(Date.now() < end, 'No catalog notification');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 });

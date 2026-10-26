@@ -66,17 +66,18 @@ function send(
   method: string,
   headers: Record<string, string>,
   body?: unknown,
+  path = '/mcp',
 ): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const req = request(
       {
         host: '127.0.0.1',
         port,
-        path: '/mcp',
+        path,
         method,
         headers: {
           host,
-          authorization: `Bearer ${key}`,
+          ...(path === '/mcp' && { authorization: `Bearer ${key}` }),
           accept: 'application/json, text/event-stream',
           'content-type': 'application/json',
           ...headers,
@@ -98,6 +99,41 @@ function send(
     req.on('error', reject);
     req.end(body === undefined ? undefined : JSON.stringify(body));
   });
+}
+
+// Holds a GET /mcp event stream open and collects what arrives on it.
+function stream(port: number, headers: Record<string, string>) {
+  let received = '';
+  const req = request({
+    host: '127.0.0.1',
+    port,
+    path: '/mcp',
+    method: 'GET',
+    headers: {
+      host,
+      authorization: `Bearer ${key}`,
+      accept: 'text/event-stream',
+      ...headers,
+    },
+  });
+  const opened = new Promise<void>((resolve, reject) => {
+    req.on('response', (res) => {
+      if (res.statusCode !== 200) reject(new Error(`SSE ${res.statusCode}`));
+      res.on('data', (chunk) => (received += chunk));
+      resolve();
+    });
+    req.on('error', reject);
+  });
+  req.end();
+  return { opened, received: () => received, close: () => req.destroy() };
+}
+
+async function until(check: () => boolean, message: string) {
+  const end = Date.now() + 10000;
+  while (!check()) {
+    assert.ok(Date.now() < end, message);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
 }
 
 try {
@@ -153,6 +189,75 @@ try {
   }
   console.log(
     `Session started on ${pods[0]} served tools/list and tools/call on ${pods[1]} and back.`,
+  );
+
+  // A server disabled through one pod is unavailable on the other at once.
+  const dashboard = `http://${host}`;
+  const password = Buffer.from(
+    material['dashboard-admin-password'],
+    'base64',
+  ).toString('utf8');
+  const login = await send(
+    a,
+    'POST',
+    { origin: dashboard },
+    { email: 'admin@storelink.local', password },
+    '/api/login',
+  );
+  assert.equal(login.status, 200);
+  const cookie = String(login.headers['set-cookie']).split(';')[0];
+  const admin = {
+    origin: dashboard,
+    cookie,
+    'x-csrf-token': JSON.parse(login.body).csrf,
+  };
+  const servers = JSON.parse(
+    (await send(a, 'GET', { cookie }, undefined, '/api/servers')).body,
+  );
+  const time = servers.find(
+    (server: { slug: string }) => server.slug === 'time',
+  );
+  const events = stream(b, session);
+  await events.opened;
+  const toggle = async (enabled: boolean) =>
+    assert.equal(
+      (
+        await send(
+          a,
+          'POST',
+          admin,
+          { id: time.id, slug: time.slug, url: time.url, enabled },
+          '/api/servers',
+        )
+      ).status,
+      201,
+    );
+  const callOnB = async (id: number) =>
+    JSON.parse(
+      (
+        await send(b, 'POST', session, {
+          jsonrpc: '2.0',
+          id,
+          method: 'tools/call',
+          params: { name: 'time__get_status', arguments: {} },
+        })
+      ).body,
+    ).result;
+  try {
+    await toggle(false);
+    assert.equal((await callOnB(10)).isError, true);
+    await until(
+      () => events.received().includes('notifications/tools/list_changed'),
+      'No catalog notification on the other pod',
+    );
+  } finally {
+    await toggle(true);
+    events.close();
+  }
+  assert.notEqual((await callOnB(11)).isError, true);
+  await send(a, 'POST', admin, {}, '/api/logout');
+  console.log(
+    'A server disabled on one pod was refused on the next call on the other, which also notified its open event stream; re-enabling restored it.',
   );
 
   const closed = await send(a, 'DELETE', session);
