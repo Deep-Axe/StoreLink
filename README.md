@@ -149,7 +149,7 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 
 ### Administration
 
-- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. The gateway pings each server every second, so a stopped or restarting server shows as Unreachable within about a second, and every status change is kept in the connection history. Public HTTPS servers can be added directly. Cluster-internal origins must be listed in `gateway.extraUpstreamOrigins`. Credentials are stored in a Kubernetes Secret and never returned by the API.
+- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. The gateway pings each server every second, so a stopped or restarting server shows as Unreachable within about a second, and every status change is kept in the connection history. Public HTTPS servers can be added directly. Cluster-internal origins must be listed in `gateway.extraUpstreamOrigins`. Credentials are encrypted with AES-256-GCM, stored in a Kubernetes Secret, and never returned by the API.
 - **Access:** invite members, and issue or revoke API keys.
 - **Activity:** the audit log of every tool call, showing user, server, tool, time, duration and outcome.
 
@@ -187,6 +187,11 @@ Common chart values:
 | `gateway.extraUpstreamOrigins`                                             | `[]`                                                         | Cluster-internal origins allowed as upstreams            |
 | `gateway.healthIntervalMs`                                                 | `1000`                                                       | Interval between upstream health probes                  |
 | `gateway.metrics.enabled`, `gateway.metrics.port`                          | `true`, `9464`                                               | Prometheus metrics listener inside the cluster           |
+| `networkPolicies.enabled`                                                  | `true`                                                       | Default-deny NetworkPolicies with per-component rules    |
+| `networkPolicies.kubernetesApi.cidrs`, `.ports`                            | `[0.0.0.0/0]`, `[6443]`                                      | Where the gateway reaches the Kubernetes API             |
+| `networkPolicies.publicHttps`                                              | `true`                                                       | Gateway egress to public HTTPS (OpenAI, public servers)  |
+| `networkPolicies.metricsFrom`                                              | `[]`                                                         | Peers allowed to scrape the metrics port                 |
+| `networkPolicies.gatewayEgress`, `.wordpressEgress`                        | `[]`                                                         | Extra egress rules for the gateway or WordPress          |
 | `store.host`, `gateway.host`                                               | `store.storelink.localhost`, `dashboard.storelink.localhost` | Public hostnames                                         |
 | `store.timezone`                                                           | `Asia/Kolkata`                                               | Store timezone, which defines "today"                    |
 | `storage.className`                                                        | `local-path`                                                 | Storage class for the persistent volumes                 |
@@ -198,7 +203,7 @@ Each chat turn is limited to 8 model rounds, 20 tool calls and 120 seconds.
 
 The same chart deploys to a single-node k3s server. The differences are in `values-prod.yaml` and the Secrets you supply.
 
-1. Install k3s with Traefik and NetworkPolicy enforcement ([quick start](https://docs.k3s.io/quick-start)). Open ports 80 and 443, and restrict SSH and Kubernetes API access.
+1. Install k3s with Traefik and NetworkPolicy enforcement ([quick start](https://docs.k3s.io/quick-start)). Open ports 80 and 443, and restrict SSH and Kubernetes API access. Set `networkPolicies.kubernetesApi.cidrs` to the server's address (`kubectl get endpoints kubernetes`).
 2. Build both images and push them to a registry the server can pull from:
 
    ```sh
@@ -228,13 +233,15 @@ The same chart deploys to a single-node k3s server. The differences are in `valu
 
 6. Schedule backups of PostgreSQL, MariaDB, WordPress uploads and Secrets, and enable Secret encryption at rest.
 
+The chart denies all pod traffic by default and opens only the connections each component uses. WordPress has no internet access, so plugin updates and WP-Cron requests to the public store URL fail; open them with `networkPolicies.wordpressEgress` if you need them.
+
 ## Upgrades and rollback
 
 Every `helm upgrade` creates a new release revision. Store, MCP server and gateway changes all ship the same way: new image tags or values in one upgrade. Locally, `scripts/local-up.sh` builds new images and runs the upgrade.
 
 ### 1. Back up the data
 
-Helm versions the Kubernetes manifests, not the data on the persistent volumes. Back up both databases and the WordPress uploads before each upgrade:
+Helm versions the Kubernetes manifests, not the data on the persistent volumes. Back up both databases, the WordPress uploads and the Secrets before each upgrade. Upstream credentials are encrypted with a key derived from the API key pepper, so `storelink-credentials` and `storelink-upstream-credentials` must be restored together:
 
 ```sh
 backup=~/storelink-backups/$(date +%Y%m%d-%H%M%S) && mkdir -p "$backup"
@@ -244,6 +251,8 @@ kubectl -n storelink exec deploy/storelink-mariadb -- \
   sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction --routines wordpress' > "$backup/mariadb.sql"
 kubectl -n storelink exec deploy/storelink-wordpress -- \
   tar -C /var/www/html -czf - wp-content/uploads > "$backup/wordpress-uploads.tgz"
+(umask 077; kubectl -n storelink get secret storelink-credentials storelink-upstream-credentials \
+  -o yaml > "$backup/secrets.yaml")
 ```
 
 ### 2. Upgrade
@@ -274,6 +283,7 @@ A rollback does not undo:
 - **PostgreSQL migrations.** Files in `services/gateway/migrations/` only add tables and columns and are safe to re-run. Older gateway versions run against the newer schema, and the added columns remain after a rollback.
 - **WordPress and WooCommerce database changes.** Plugin or core updates can change the MariaDB schema, and that data is not versioned by Helm.
 - **Data on the persistent volumes.** Orders, products, users, keys and audit records written after the upgrade remain in `storelink-postgres`, `storelink-mariadb` and `storelink-wordpress`.
+- **Encrypted upstream credentials.** Gateways from releases before credential encryption cannot read the encrypted entries, so rolling back past that change leaves every upstream Unreachable. Restore `secrets.yaml` from a backup taken before the upgrade, or re-enter the credentials in the dashboard.
 
 ### 4. Restore data
 
@@ -317,7 +327,7 @@ The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` 
 | Item                     | Status                                 |
 | ------------------------ | -------------------------------------- |
 | #1 VPS deployment        | Documented and templated, not deployed |
-| #6 Security hardening    | Partial                                |
+| #6 Security hardening    | Implemented                            |
 | #7 Scaling               | Partial: rate and concurrency limits   |
 | #8 Observability         | Implemented                            |
 | #9 Upgrades and rollback | Documented and rehearsed               |
