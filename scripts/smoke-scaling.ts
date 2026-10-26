@@ -17,23 +17,44 @@ const key = JSON.parse(
   Buffer.from(material['gateway-keys'], 'base64').toString(),
 )['member-b'];
 
-const pods = execFileSync(
+execFileSync(
   kubectl,
   [
     '-n',
     'storelink',
-    'get',
-    'pods',
-    '-l',
-    'storelink/component=gateway',
-    '--field-selector=status.phase=Running',
-    '-o',
-    'jsonpath={.items[*].metadata.name}',
+    'rollout',
+    'status',
+    'deployment/storelink-gateway',
+    '--timeout=180s',
   ],
-  { env, encoding: 'utf8' },
+  { env, stdio: 'ignore' },
+);
+// Pods that are shutting down keep serving briefly; use only the current ones.
+const pods = (
+  JSON.parse(
+    execFileSync(
+      kubectl,
+      [
+        '-n',
+        'storelink',
+        'get',
+        'pods',
+        '-l',
+        'storelink/component=gateway',
+        '-o',
+        'json',
+      ],
+      { env, encoding: 'utf8' },
+    ),
+  ).items as {
+    metadata: { name: string; deletionTimestamp?: string };
+    status: { phase: string };
+  }[]
 )
-  .split(' ')
-  .filter(Boolean)
+  .filter(
+    (pod) => pod.status.phase === 'Running' && !pod.metadata.deletionTimestamp,
+  )
+  .map((pod) => pod.metadata.name)
   .sort();
 assert.ok(pods.length >= 2, `Expected two gateway pods, found ${pods.length}`);
 

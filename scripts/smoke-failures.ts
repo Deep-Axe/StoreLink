@@ -7,6 +7,7 @@ import { kubectlCommand } from './lib/kubectl.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { closeClient } from './lib/mcp-client.ts';
 
 acquireClusterLock();
 
@@ -100,7 +101,7 @@ const transport = () =>
       }),
   });
 await until(async () => {
-  await client.close();
+  await closeClient(client);
   client = new Client({ name: 'storelink-failure-check', version: '0.1.0' });
   await client.connect(transport());
   return true;
@@ -182,7 +183,7 @@ try {
     return true;
   });
   await until(async () => {
-    await client.close();
+    await closeClient(client);
     client = new Client({ name: 'storelink-failure-check', version: '0.1.0' });
     await client.connect(transport());
     return true;
@@ -245,5 +246,5 @@ try {
       await api('/servers', { ...time!, enabled: true });
       return true;
     }).catch(() => {});
-  await client.close();
+  await closeClient(client);
 }

@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolActivity } from '../services/gateway/src/chat.ts';
+import { closeClient } from './lib/mcp-client.ts';
 
 acquireClusterLock();
 
@@ -246,11 +247,11 @@ try {
   );
   assert.ok(calls(orders, 'time__get_day_window').length);
   assert.ok(calls(orders, 'woo__list_orders').length);
+  // Stored activity keeps the first 4000 characters of a result, so a long
+  // order list is cut off; newest orders come first, so look for the ID there.
   assert.ok(
     calls(orders, 'woo__list_orders').some((activity) =>
-      (resultData(activity) as { id: number }[]).some(
-        (order) => order.id === orderId!,
-      ),
+      activity.result.includes(`\\"id\\":${orderId!},`),
     ),
   );
   assert.match(orders.text, new RegExp(String(orderId!)));
@@ -469,6 +470,6 @@ try {
   try {
     unlinkSync(keyFile);
   } catch {}
-  await external?.close();
+  if (external) await closeClient(external);
   await browser.close();
 }

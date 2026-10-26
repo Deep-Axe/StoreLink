@@ -6,6 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { acquireClusterLock } from './lib/cluster-lock.ts';
 import { kubectlCommand } from './lib/kubectl.ts';
+import { closeClient } from './lib/mcp-client.ts';
 
 acquireClusterLock();
 console.log(`Pod-delete-only check started at ${new Date().toISOString()}`);
@@ -174,7 +175,7 @@ try {
     'deployment/storelink-operations-mcp',
     '--timeout=90s',
   ).catch(() => {});
-  await client.close();
+  await closeClient(client);
   await fetch(origin + '/api/logout', {
     method: 'POST',
     headers: {

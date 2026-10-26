@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { chromium } from '@playwright/test';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { closeClient } from './lib/mcp-client.ts';
 
 acquireClusterLock();
 
@@ -183,5 +184,5 @@ try {
     'All five real WooCommerce tools and storefront checkout passed.',
   );
 } finally {
-  await client.close();
+  await closeClient(client);
 }
