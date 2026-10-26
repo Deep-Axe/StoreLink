@@ -297,7 +297,7 @@ helm upgrade storelink charts/storelink -n storelink -f production-values.yaml \
 kubectl -n storelink wait --for=condition=complete jobs -l storelink/component=store-bootstrap --timeout=180s
 ```
 
-`--wait` returns once every workload passes its readiness probe. To change a single setting and keep everything else, use `--reuse-values --set <key>=<value>`. Each revision runs its own store bootstrap Job (`storelink-store-bootstrap-<revision>`), and gateway pods apply database migrations when they start. Both steps are idempotent.
+`--wait` returns once every workload passes its readiness probe. To change a single setting and keep everything else, use `--reuse-values --set <key>=<value>`. Change the number of gateway replicas through `gateway.replicas`; after a manual `kubectl scale`, the next upgrade fails with a field-ownership conflict until it is run once with `--force-conflicts`. Each revision runs its own store bootstrap Job (`storelink-store-bootstrap-<revision>`), and gateway pods apply database migrations when they start. Both steps are idempotent.
 
 ### 3. Roll back
 
@@ -351,11 +351,18 @@ node scripts/smoke-cluster.ts       # store tools and storefront checkout
 node scripts/smoke-dashboard.ts     # dashboard, invitations, keys and server management
 node scripts/smoke-failures.ts      # upstream outage, recovery and persistence
 node scripts/smoke-pod-delete.ts    # deleted upstream pod shows as Unreachable, then recovers
-node scripts/smoke-scaling.ts       # sessions, configuration changes and limits across two gateway pods
+node scripts/smoke-scaling.ts       # sessions, configuration changes and limits across two gateway pods (one live model call)
 node --env-file=.env scripts/smoke-chat.ts  # live chat flow (uses the OpenAI API)
 ```
 
 The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` starts Vite with API requests proxied to the deployed gateway. Scripts that modify the cluster take a shared lock; wrap manual changes with `node scripts/with-cluster-lock.ts -- <command>`.
+
+MCP sessions and rate-limit counters are stored in PostgreSQL, so they survive redeploys: sessions last 15 minutes after their last use, login counters 15 minutes and the chat quota an hour. Rehearsals therefore use up part of the next hour's chat and login allowance. To start a demo from zero:
+
+```sh
+kubectl -n storelink exec deploy/storelink-postgres -- \
+  psql -U storelink -d storelink -c 'DELETE FROM mcp_sessions; DELETE FROM rate_limits;'
+```
 
 ## Stand-out items
 
