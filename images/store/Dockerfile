@@ -9,3 +9,9 @@ COPY images/store/bootstrap.sh /opt/storelink/bootstrap.sh
 COPY images/store/configure.php /opt/storelink/configure.php
 RUN printf 'memory_limit=256M\nupload_max_filesize=16M\npost_max_size=16M\n' > /usr/local/etc/php/conf.d/storelink.ini \
     && printf '<IfModule mpm_prefork_module>\nStartServers 1\nMinSpareServers 1\nMaxSpareServers 2\nMaxRequestWorkers 4\nMaxConnectionsPerChild 500\n</IfModule>\n' > /etc/apache2/mods-available/mpm_prefork.conf
+# Apache listens on an unprivileged port so the store runs as www-data.
+RUN sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf \
+    && sed -i 's/^<VirtualHost \*:80>$/<VirtualHost *:8080>/' /etc/apache2/sites-available/000-default.conf \
+    && grep -qx 'Listen 8080' /etc/apache2/ports.conf \
+    && grep -qx '<VirtualHost \*:8080>' /etc/apache2/sites-available/000-default.conf
+USER 33:33

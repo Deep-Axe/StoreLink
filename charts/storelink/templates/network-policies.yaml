@@ -17,14 +17,14 @@ spec:
         {{- end }}
       ports:
         - protocol: TCP
-          port: {{ index (dict "time-mcp" 3002 "operations-mcp" 3003 "woo-mcp" 3001 "postgres" 5432 "mariadb" 3306 "wordpress" 80) $destination }}
+          port: {{ index (dict "time-mcp" 3002 "operations-mcp" 3003 "woo-mcp" 3001 "postgres" 5432 "mariadb" 3306 "wordpress" 8080) $destination }}
     {{- if eq $destination "wordpress" }}
     - from:
         - namespaceSelector:
             matchLabels: { kubernetes.io/metadata.name: kube-system }
           podSelector:
             matchLabels: { app.kubernetes.io/name: traefik }
-      ports: [{ protocol: TCP, port: 80 }]
+      ports: [{ protocol: TCP, port: 8080 }]
     {{- end }}
 {{- end }}
 {{- end }}
