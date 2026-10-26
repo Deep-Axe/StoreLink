@@ -5,6 +5,7 @@ import type { Gateway } from './gateway.ts';
 import { upstreamClient } from './upstream.ts';
 import type { Credential, CredentialStore } from './credentials.ts';
 import { validateCredential } from './credentials.ts';
+import { summarizeCalls } from './metrics.ts';
 
 import { UpstreamPolicy } from './upstream-policy.ts';
 export { RegistryInputError } from './upstream-policy.ts';
@@ -147,6 +148,18 @@ export class Registry {
       'SELECT * FROM upstream_servers WHERE team_id=$1 ORDER BY slug',
       [actor.teamId],
     );
+    // Team-wide call volume is administrator information, like the audit log.
+    const stats =
+      actor.role === 'admin'
+        ? new Map(
+            (
+              await this.store.callStats({
+                teamId: actor.teamId,
+                since: new Date(Date.now() - 24 * 60 * 60 * 1000),
+              })
+            ).map((s) => [s.serverId, s]),
+          )
+        : undefined;
     return rows.map((row) => {
       const runtime = this.gateway.upstreams.get(row.id);
       return {
@@ -159,6 +172,7 @@ export class Registry {
         lastSuccessAt: runtime?.lastSuccessAt ?? row.last_success_at,
         lastFailureAt: runtime?.lastFailureAt ?? row.last_failure_at,
         lastError: runtime?.lastError ?? row.last_error,
+        metrics: stats ? summarizeCalls(stats.get(row.id)) : undefined,
         tools: [...this.gateway.routes.values()]
           .filter((route) => route.upstream.id === row.id)
           .map((route) => route.tool.name),

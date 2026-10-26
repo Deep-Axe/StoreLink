@@ -27,6 +27,9 @@ store:
 gateway:
   extraUpstreamOrigins: []
   healthIntervalMs: 1000
+  metrics:
+    enabled: true
+    port: 9464
   host: dashboard.storelink.localhost
   publicUrl: http://dashboard.storelink.localhost
   resources:
