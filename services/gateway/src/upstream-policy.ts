@@ -17,7 +17,7 @@ export function publicAddress(address: string): boolean {
 }
 // The MCP server of a store created by the provisioner (see store-manifests.ts).
 export const managedStoreOrigin =
-  /^http:\/\/woo-mcp\.storelink-store-[a-z][a-z0-9-]{0,11}\.svc\.cluster\.local:3001$/;
+  /^http:\/\/woo-mcp\.storelink-store-[a-z](?:[a-z0-9-]{0,10}[a-z0-9])?\.svc\.cluster\.local:3001$/;
 export class UpstreamPolicy {
   origins: Set<string>;
   resolver: Resolver;

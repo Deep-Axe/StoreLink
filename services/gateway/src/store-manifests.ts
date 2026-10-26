@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { managedLabel, storeNamespacePattern } from './k8s-client.ts';
 
-export const storeSlugPattern = /^[a-z][a-z0-9-]{0,11}$/;
+export const storeSlugPattern = /^[a-z](?:[a-z0-9-]{0,10}[a-z0-9])?$/;
 
 type Resources = {
   requests: { cpu: string; memory: string };

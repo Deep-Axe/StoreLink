@@ -62,7 +62,8 @@ export class KubernetesClient {
   }
 }
 
-export const storeNamespacePattern = /^storelink-store-[a-z][a-z0-9-]{0,11}$/;
+export const storeNamespacePattern =
+  /^storelink-store-[a-z](?:[a-z0-9-]{0,10}[a-z0-9])?$/;
 export const managedLabel = 'storelink/managed-store';
 
 type KubeObject = {

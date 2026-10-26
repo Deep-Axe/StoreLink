@@ -61,7 +61,15 @@ test('every address a store uses comes from its slug', () => {
     mcpUrl: 'http://woo-mcp.storelink-store-north.svc.cluster.local:3001/mcp',
     upstreamSlug: 'woo-north',
   });
-  for (const slug of ['North', '1st', 'a'.repeat(13), '../x', 'a_b', ''])
+  for (const slug of [
+    'North',
+    '1st',
+    'a'.repeat(13),
+    '../x',
+    'a_b',
+    '',
+    'north-',
+  ])
     assert.throws(() => storeNames(slug, settings), /Invalid store slug/);
   // The gateway approves exactly this origin form, and only when enabled.
   assert.ok(new UpstreamPolicy([], undefined, true).approved(names.mcpOrigin));
