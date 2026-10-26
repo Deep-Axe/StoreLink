@@ -128,10 +128,10 @@ export class Registry {
     for (const runtime of this.gateway.upstreams.values()) {
       await this.store.pool.query(
         `WITH previous AS (
-        SELECT id,team_id,last_status FROM upstream_servers WHERE id=$1 FOR UPDATE
+        SELECT id,team_id,slug,last_status FROM upstream_servers WHERE id=$1 FOR UPDATE
       ), changed AS (
         UPDATE upstream_servers SET last_status=$2,last_success_at=coalesce($3,last_success_at),last_failure_at=coalesce($4,last_failure_at),last_error=coalesce($5,last_error) WHERE id=$1 RETURNING id
-      ) INSERT INTO upstream_events(team_id,server_id,status) SELECT team_id,id,$2 FROM previous WHERE last_status IS DISTINCT FROM $2`,
+      ) INSERT INTO upstream_events(team_id,server_id,slug,status) SELECT team_id,id,slug,$2 FROM previous WHERE last_status IS DISTINCT FROM $2`,
         [
           runtime.id,
           runtime.status,
@@ -269,7 +269,11 @@ export class Registry {
   private async deleteUnlocked(actor: Identity, id: string): Promise<void> {
     if (actor.role !== 'admin') throw new Error('Administrator required');
     const deleted = await this.store.pool.query(
-      'DELETE FROM upstream_servers WHERE id=$1 AND team_id=$2 RETURNING id,credential_ref',
+      `WITH deleted AS (
+        DELETE FROM upstream_servers WHERE id=$1 AND team_id=$2 RETURNING id,team_id,slug,credential_ref
+      ), removed AS (
+        INSERT INTO upstream_events(team_id,server_id,slug,status) SELECT team_id,id,slug,'Removed' FROM deleted
+      ) SELECT id,credential_ref FROM deleted`,
       [id, actor.teamId],
     );
     if (!deleted.rowCount) throw new RegistryInputError('Unknown server');
