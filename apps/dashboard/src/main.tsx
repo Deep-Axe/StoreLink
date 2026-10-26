@@ -73,6 +73,7 @@ type Message = { role: string; text: string; activity?: Activity[] };
 type ServerEvent = {
   sequence: string;
   server_id: string;
+  slug: string | null;
   status: string;
   timestamp: string;
 };
@@ -528,7 +529,9 @@ function Connections({ me, run }: { me: Me; run: Run }) {
                     <td>{date(event.timestamp)}</td>
                     <td>
                       {servers.find((server) => server.id === event.server_id)
-                        ?.slug ?? event.server_id}
+                        ?.slug ??
+                        event.slug ??
+                        'Removed connection'}
                     </td>
                     <td>
                       <span className={`badge ${event.status.toLowerCase()}`}>

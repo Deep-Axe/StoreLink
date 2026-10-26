@@ -175,8 +175,15 @@ test('sessions reject another user/key and revoked users receive no catalog noti
   const replacement = generateApiKey();
   f.store.addKey('alice', hashApiKey(replacement, f.gateway.pepper));
   assert.equal((await request(replacement)).status, 403);
+  assert.deepEqual(
+    (({ reason, server_id }) => ({ reason, server_id }))(
+      f.store.auditRows().at(-1)!,
+    ),
+    { reason: 'session_owner_mismatch', server_id: 'a' },
+  );
   f.store.revokeKey(f.keys.alice.id);
   assert.equal((await request(f.keys.alice.raw)).status, 401);
+  assert.equal(f.store.auditRows().at(-1)?.server_id, 'a');
   f.gateway.setEnabled('a', false);
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(a.count(), 0);
