@@ -49,7 +49,7 @@ verify_file "$k3d_digest" .cache/tool-downloads/k3d
 install -m 755 .cache/tool-downloads/k3d .tools/bin/k3d
 # Match the default k3s minor instead of combining the newest kubectl with an
 # older k3d default. Override when selecting a different cluster image.
-kube_version=${URUMI_KUBECTL_VERSION:-}
+kube_version=${STORELINK_KUBECTL_VERSION:-}
 if [[ -z "$kube_version" ]]; then
   kube_minor=$(k3d version | sed -n 's/^k3s version v\([0-9]*\.[0-9]*\).*/\1/p')
   [[ -n "$kube_minor" ]] || { echo 'Cannot determine k3d Kubernetes version' >&2; exit 1; }

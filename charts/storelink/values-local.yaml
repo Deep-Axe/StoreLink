@@ -1,0 +1,7 @@
+# Local images are built and imported into k3d by scripts/local-up.sh.
+store:
+  host: store.storelink.localhost
+  publicUrl: http://store.storelink.localhost
+gateway:
+  host: dashboard.storelink.localhost
+  publicUrl: http://dashboard.storelink.localhost

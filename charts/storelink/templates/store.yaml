@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "urumi.name" . }}-wordpress
+  name: {{ include "storelink.name" . }}-wordpress
 spec:
   replicas: 1
   strategy: { type: Recreate }
   selector:
-    matchLabels: { urumi/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
+    matchLabels: { storelink/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
   template:
     metadata:
-      labels: { urumi/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
+      labels: { storelink/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
       automountServiceAccountToken: false
       containers:
@@ -17,7 +17,7 @@ spec:
           image: {{ .Values.images.store | quote }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           env:
-            - { name: WORDPRESS_DB_HOST, value: {{ include "urumi.name" . }}-mariadb }
+            - { name: WORDPRESS_DB_HOST, value: {{ include "storelink.name" . }}-mariadb }
             - { name: WORDPRESS_DB_NAME, value: wordpress }
             - { name: WORDPRESS_DB_USER, value: wordpress }
             - name: WORDPRESS_DB_PASSWORD
@@ -31,38 +31,38 @@ spec:
                 define('WP_MEMORY_LIMIT', '256M');
           ports: [{ containerPort: 80, name: http }]
           startupProbe: { tcpSocket: { port: http }, periodSeconds: 2, failureThreshold: 90 }
-          readinessProbe: { httpGet: { path: /urumi-health.php, port: http }, periodSeconds: 5, timeoutSeconds: 5, failureThreshold: 3 }
+          readinessProbe: { httpGet: { path: /storelink-health.php, port: http }, periodSeconds: 5, timeoutSeconds: 5, failureThreshold: 3 }
           livenessProbe: { tcpSocket: { port: http }, periodSeconds: 10, failureThreshold: 6 }
           resources: {{ toYaml .Values.store.resources | nindent 12 }}
           volumeMounts:
             - { name: wordpress, mountPath: /var/www/html }
-            - { name: health, mountPath: /var/www/html/urumi-health.php, subPath: health.php, readOnly: true }
+            - { name: health, mountPath: /var/www/html/storelink-health.php, subPath: health.php, readOnly: true }
       volumes:
         - name: wordpress
-          persistentVolumeClaim: { claimName: {{ include "urumi.name" . }}-wordpress }
+          persistentVolumeClaim: { claimName: {{ include "storelink.name" . }}-wordpress }
         - name: health
-          configMap: { name: {{ include "urumi.name" . }}-health }
+          configMap: { name: {{ include "storelink.name" . }}-health }
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "urumi.name" . }}-wordpress
+  name: {{ include "storelink.name" . }}-wordpress
 spec:
-  selector: { urumi/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
+  selector: { storelink/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
   ports: [{ port: 80, targetPort: http }]
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "urumi.name" . }}-store-bootstrap-{{ .Release.Revision }}
-  labels: { urumi/component: store-bootstrap, app.kubernetes.io/instance: {{ .Release.Name }} }
+  name: {{ include "storelink.name" . }}-store-bootstrap-{{ .Release.Revision }}
+  labels: { storelink/component: store-bootstrap, app.kubernetes.io/instance: {{ .Release.Name }} }
 spec:
   ttlSecondsAfterFinished: 3600
   backoffLimit: 3
   activeDeadlineSeconds: 600
   template:
     metadata:
-      labels: { urumi/component: store-bootstrap, app.kubernetes.io/instance: {{ .Release.Name }} }
+      labels: { storelink/component: store-bootstrap, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
@@ -71,15 +71,15 @@ spec:
         podAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
-                matchLabels: { urumi/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
+                matchLabels: { storelink/component: wordpress, app.kubernetes.io/instance: {{ .Release.Name }} }
               topologyKey: kubernetes.io/hostname
       containers:
         - name: bootstrap
           image: {{ .Values.images.store | quote }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
-          command: [bash, /opt/urumi/bootstrap.sh]
+          command: [bash, /opt/storelink/bootstrap.sh]
           env:
-            - { name: WORDPRESS_DB_HOST, value: {{ include "urumi.name" . }}-mariadb }
+            - { name: WORDPRESS_DB_HOST, value: {{ include "storelink.name" . }}-mariadb }
             - { name: WORDPRESS_DB_NAME, value: wordpress }
             - { name: WORDPRESS_DB_USER, value: wordpress }
             - name: WORDPRESS_DB_PASSWORD
@@ -102,6 +102,6 @@ spec:
             - { name: tmp, mountPath: /tmp }
       volumes:
         - name: wordpress
-          persistentVolumeClaim: { claimName: {{ include "urumi.name" . }}-wordpress }
+          persistentVolumeClaim: { claimName: {{ include "storelink.name" . }}-wordpress }
         - name: tmp
           emptyDir: {}

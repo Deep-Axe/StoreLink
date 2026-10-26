@@ -58,7 +58,7 @@ async function setup() {
 }
 
 test('API digests support direct lookup without storing recoverable keys; revoked ownership survives restart', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'urumi-'));
+  const directory = mkdtempSync(join(tmpdir(), 'storelink-'));
   const filename = join(directory, 'gateway.sqlite');
   const pepper = randomBytes(32),
     key = generateApiKey();
@@ -259,7 +259,7 @@ test('real MCP HTTP initialization, discovery, store tools and per-request revoc
   const requests: { method: string; url: string; body?: string }[] = [];
   const adapter = new WooStoreClient({
     publicUrl: 'https://store.example.test',
-    connectService: 'wordpress.urumi.svc.cluster.local',
+    connectService: 'wordpress.storelink.svc.cluster.local',
     consumerKey: 'ck_test_fixture',
     consumerSecret: 'cs_test_fixture',
     async send(input) {
@@ -418,7 +418,7 @@ test('uncertain store writes survive both MCP hops and are never retried', async
     price: '19.00',
   });
   assert.equal(result.isError, true);
-  assert.equal(result._meta?.['urumi/outcome'], 'uncertain');
+  assert.equal(result._meta?.['storelink/outcome'], 'uncertain');
   assert.equal(calls, 1);
   assert.equal(store.auditRows().at(-1)?.outcome, 'uncertain');
 });

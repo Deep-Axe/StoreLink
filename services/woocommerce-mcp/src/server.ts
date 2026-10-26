@@ -74,7 +74,7 @@ export function wooMcpServer(store: WooStoreClient): McpServer {
       if (!(error instanceof StoreRequestError) || error.uncertain)
         return {
           isError: true,
-          _meta: { 'urumi/outcome': 'uncertain' },
+          _meta: { 'storelink/outcome': 'uncertain' },
           content: [
             {
               type: 'text' as const,
@@ -85,7 +85,10 @@ export function wooMcpServer(store: WooStoreClient): McpServer {
       throw error;
     }
   }
-  const server = new McpServer({ name: 'urumi-woocommerce', version: '0.1.0' });
+  const server = new McpServer({
+    name: 'storelink-woocommerce',
+    version: '0.1.0',
+  });
   server.registerTool(
     'list_products',
     {

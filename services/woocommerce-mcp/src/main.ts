@@ -4,9 +4,10 @@ import { WooStoreClient } from './store-client.ts';
 import { wooHttpHandler } from './server.ts';
 
 const store = new WooStoreClient({
-  publicUrl: process.env.STORE_PUBLIC_URL ?? 'http://store.urumi.test',
+  publicUrl: process.env.STORE_PUBLIC_URL ?? 'http://store.storelink.test',
   connectService:
-    process.env.STORE_CONNECT_SERVICE ?? 'wordpress.urumi.svc.cluster.local',
+    process.env.STORE_CONNECT_SERVICE ??
+    'wordpress.storelink.svc.cluster.local',
   consumerKey: secret('WOO_CONSUMER_KEY'),
   consumerSecret: secret('WOO_CONSUMER_SECRET'),
 });

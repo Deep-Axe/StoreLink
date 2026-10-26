@@ -15,8 +15,12 @@ const keys = JSON.parse(
   Buffer.from(material['gateway-keys'], 'base64').toString('utf8'),
 ) as Record<string, string>;
 const origin =
-  process.env.URUMI_GATEWAY_URL ?? 'http://dashboard.urumi.localhost/mcp';
-const client = new Client({ name: 'urumi-real-store-check', version: '0.1.0' });
+  process.env.STORELINK_GATEWAY_URL ??
+  'http://dashboard.storelink.localhost/mcp';
+const client = new Client({
+  name: 'storelink-real-store-check',
+  version: '0.1.0',
+});
 function data(value: unknown): unknown {
   const result = CallToolResultSchema.parse(value);
   const text = result.content.find((content) => content.type === 'text');
@@ -40,7 +44,7 @@ try {
   ]) {
     assert.ok(catalog.tools.some((entry) => entry.name === `woo__${tool}`));
   }
-  const name = `Urumi live check ${Date.now()}`;
+  const name = `StoreLink live check ${Date.now()}`;
   const product = data(
     await client.callTool({
       name: 'woo__create_product',
@@ -78,7 +82,7 @@ try {
       city: 'Bengaluru',
       postcode: '560001',
       phone: '9999999999',
-      email: 'demo-buyer@urumi.invalid',
+      email: 'demo-buyer@storelink.test',
     })) {
       await page.locator(`#billing_${field}`).fill(value);
     }

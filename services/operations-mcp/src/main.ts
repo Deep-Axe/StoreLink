@@ -9,7 +9,7 @@ internalServer({
   name: 'Operations MCP',
   createServer() {
     const server = new McpServer({
-      name: 'urumi-operations',
+      name: 'storelink-operations',
       version: '0.1.0',
     });
     server.registerTool(

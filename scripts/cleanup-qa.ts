@@ -12,13 +12,13 @@ const env = {
   KUBECONFIG: process.env.KUBECONFIG ?? `${process.cwd()}/.data/kubeconfig`,
 };
 const run = (args: string[], input?: string) =>
-  execFileSync(kubectl, ['-n', 'urumi', ...args], {
+  execFileSync(kubectl, ['-n', 'storelink', ...args], {
     env,
     input,
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-// Narrowly target the reported QA member and disabled invitation-smoke accounts.
+// Narrowly target QA members and disabled invitation-smoke accounts.
 // Keep user/key tombstones so historical audits retain their attribution.
 const databaseScript = `
 import pg from 'pg';
@@ -27,7 +27,7 @@ const pool=new pg.Pool({connectionString:readFileSync(process.env.DATABASE_URL_F
 const client=await pool.connect();
 try {
  await client.query('BEGIN');
- const users=(await client.query("SELECT id,email,disabled_at FROM users WHERE role='member' AND (email=$1 OR (email ~ '^invite-[0-9]+@urumi[.]invalid$' AND disabled_at IS NOT NULL)) ORDER BY email FOR UPDATE",['qa-1792397715782@urumi.local'])).rows;
+ const users=(await client.query("SELECT id,email,disabled_at FROM users WHERE role='member' AND (email ~ $1 OR (email ~ $2 AND disabled_at IS NOT NULL)) ORDER BY email FOR UPDATE",['^qa-[0-9]+@storelink[.]test$','^invite-[0-9]+@storelink[.]test$'])).rows;
  const ids=users.map(u=>u.id);
  const keys=(await client.query("SELECT k.id,k.label,k.revoked_at FROM api_keys k WHERE k.user_id=ANY($1::text[]) OR (k.revoked_at IS NOT NULL AND k.label=ANY($2::text[]))",[ids,['Temporary smoke-check key','Invitation check','Live chat acceptance key']])).rows;
  const conversations=(await client.query("SELECT count(*)::int AS count FROM conversations WHERE user_id=ANY($1::text[]) OR (jsonb_array_length(messages)=0 AND input_tokens=0 AND output_tokens=0)",[ids])).rows[0].count;
@@ -35,7 +35,7 @@ try {
  if(${apply}) {
   await client.query('UPDATE users SET disabled_at=coalesce(disabled_at,now()),password_hash=NULL WHERE id=ANY($1::text[])',[ids]);
   await client.query('DELETE FROM sessions WHERE user_id=ANY($1::text[])',[ids]);
-  await client.query("DELETE FROM invitations WHERE email=$1 OR email ~ '^invite-[0-9]+@urumi[.]invalid$'",['qa-1792397715782@urumi.local']);
+  await client.query("DELETE FROM invitations WHERE email ~ $1 OR email ~ $2",['^qa-[0-9]+@storelink[.]test$','^invite-[0-9]+@storelink[.]test$']);
   await client.query('UPDATE api_keys SET revoked_at=coalesce(revoked_at,now()) WHERE user_id=ANY($1::text[])',[ids]);
   await client.query('DELETE FROM conversations WHERE user_id=ANY($1::text[]) OR (jsonb_array_length(messages)=0 AND input_tokens=0 AND output_tokens=0)',[ids]);
  }
@@ -48,7 +48,7 @@ process.stdout.write(
     [
       'exec',
       '-i',
-      'deployment/urumi-gateway',
+      'deployment/storelink-gateway',
       '--',
       'node',
       '--input-type=module',
@@ -62,7 +62,7 @@ const productScript = `$product=wc_get_product(23); if (!$product) {echo "QA pro
 process.stdout.write(
   run([
     'exec',
-    'deployment/urumi-wordpress',
+    'deployment/storelink-wordpress',
     '--',
     'wp',
     '--allow-root',

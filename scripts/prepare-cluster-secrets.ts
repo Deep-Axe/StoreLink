@@ -7,15 +7,15 @@ import { join } from 'node:path';
 import { kubectlCommand } from './lib/kubectl.ts';
 
 const kubectl = kubectlCommand();
-const namespace = process.env.URUMI_NAMESPACE ?? 'urumi';
-const secretName = process.env.URUMI_SECRET_NAME ?? 'urumi-credentials';
+const namespace = process.env.STORELINK_NAMESPACE ?? 'storelink';
+const secretName = process.env.STORELINK_SECRET_NAME ?? 'storelink-credentials';
 const run = (args: string[], input?: string) =>
   execFileSync(kubectl, args, {
     input,
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-const stateDir = process.env.URUMI_STATE_DIR ?? '.data';
+const stateDir = process.env.STORELINK_STATE_DIR ?? '.data';
 mkdirSync(stateDir, { recursive: true, mode: 0o700 });
 run(
   ['apply', '-f', '-'],
@@ -47,7 +47,7 @@ else {
     const postgresPassword = random();
     const raw: Record<string, Buffer | string> = {
       'postgres-password': postgresPassword,
-      'database-url': `postgresql://urumi:${postgresPassword}@urumi-postgres:5432/urumi`,
+      'database-url': `postgresql://storelink:${postgresPassword}@storelink-postgres:5432/storelink`,
       'mariadb-root-password': random(),
       'wordpress-db-password': random(),
       'wordpress-admin-password': random(),
@@ -101,7 +101,8 @@ run(
   }),
 );
 const upstreamName =
-  process.env.URUMI_UPSTREAM_SECRET_NAME ?? 'urumi-upstream-credentials';
+  process.env.STORELINK_UPSTREAM_SECRET_NAME ??
+  'storelink-upstream-credentials';
 const upstream = JSON.parse(
   run([
     '-n',

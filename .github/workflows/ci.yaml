@@ -23,6 +23,6 @@ jobs:
           curl -fsSLO https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz.sha256sum
           sha256sum --check helm-v4.3.1-linux-amd64.tar.gz.sha256sum
           tar -xzf helm-v4.3.1-linux-amd64.tar.gz
-          linux-amd64/helm lint charts/urumi -f charts/urumi/values-local.yaml
-          linux-amd64/helm lint charts/urumi -f charts/urumi/values-prod.yaml
-          linux-amd64/helm template urumi charts/urumi -f charts/urumi/values-prod.yaml > /dev/null
+          linux-amd64/helm lint charts/storelink -f charts/storelink/values-local.yaml
+          linux-amd64/helm lint charts/storelink -f charts/storelink/values-prod.yaml
+          linux-amd64/helm template storelink charts/storelink -f charts/storelink/values-prod.yaml > /dev/null

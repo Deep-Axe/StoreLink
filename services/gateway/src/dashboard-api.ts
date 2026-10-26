@@ -56,7 +56,7 @@ export function dashboardApi(options: Options) {
   const digest = (kind: string, value: string) =>
     hashApiKey(`${kind}:${value}`, pepper);
   const cookieName =
-    new URL(origin).protocol === 'https:' ? '__Host-urumi' : 'urumi';
+    new URL(origin).protocol === 'https:' ? '__Host-storelink' : 'storelink';
   const cookieOptions = {
     httpOnly: true,
     secure: new URL(origin).protocol === 'https:',

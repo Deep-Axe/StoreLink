@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "urumi.name" . }}-health
+  name: {{ include "storelink.name" . }}-health
 data:
   health.php: |
 {{ .Files.Get "files/health.php" | indent 4 }}

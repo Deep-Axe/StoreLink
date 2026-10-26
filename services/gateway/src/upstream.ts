@@ -45,7 +45,10 @@ export function upstreamClient(
       : validateCredential(serviceToken);
   async function connected(): Promise<Client> {
     if (!connection) {
-      const client = new Client({ name: 'urumi-gateway', version: '0.1.0' });
+      const client = new Client({
+        name: 'storelink-gateway',
+        version: '0.1.0',
+      });
       connection = client
         .connect(
           new StreamableHTTPClientTransport(url, {

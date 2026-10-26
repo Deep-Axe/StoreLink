@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 const backend =
-  process.env.URUMI_DEV_BACKEND ?? 'http://dashboard.urumi.localhost';
+  process.env.STORELINK_DEV_BACKEND ?? 'http://dashboard.storelink.localhost';
 export default defineConfig({
   plugins: [react()],
   server: {

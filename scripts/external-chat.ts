@@ -5,16 +5,20 @@ import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { runChat, openaiModel } from '../services/gateway/src/chat.ts';
 
 const url =
-  process.env.URUMI_GATEWAY_URL ?? 'http://dashboard.urumi.localhost/mcp';
-const file = process.env.URUMI_GATEWAY_KEY_FILE;
+  process.env.STORELINK_GATEWAY_URL ??
+  'http://dashboard.storelink.localhost/mcp';
+const file = process.env.STORELINK_GATEWAY_KEY_FILE;
 const jsonOutput = process.argv[2] === '--json';
 const prompt = process.argv.slice(jsonOutput ? 3 : 2).join(' ');
 if (!file || !process.env.OPENAI_API_KEY || !prompt)
   throw new Error(
-    'Set URUMI_GATEWAY_KEY_FILE and OPENAI_API_KEY, then provide a prompt. The file must contain only your dashboard-generated gateway key.',
+    'Set STORELINK_GATEWAY_KEY_FILE and OPENAI_API_KEY, then provide a prompt. The file must contain only your dashboard-generated gateway key.',
   );
 const key = readFileSync(file, 'utf8').trim();
-const client = new Client({ name: 'urumi-external-chat', version: '0.1.0' });
+const client = new Client({
+  name: 'storelink-external-chat',
+  version: '0.1.0',
+});
 try {
   await client.connect(
     new StreamableHTTPClientTransport(new URL(url), {

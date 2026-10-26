@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 export const clusterLockPath = join(
   tmpdir(),
   `storelink-${process.getuid?.() ?? 'user'}`,
-  'urumi-cluster.lock',
+  'storelink-cluster.lock',
 );
 export function runWithClusterLock(command: string, args: string[]): never {
   mkdirSync(join(clusterLockPath, '..'), { recursive: true, mode: 0o700 });

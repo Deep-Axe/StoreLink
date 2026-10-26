@@ -78,7 +78,7 @@ async function fixture(
         method: 'POST',
         headers: {
           origin,
-          cookie: `urumi=${token}`,
+          cookie: `storelink=${token}`,
           'x-csrf-token': hashApiKey(`csrf:${token}`, pepper),
           'content-type': 'application/json',
         },
