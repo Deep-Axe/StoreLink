@@ -32,6 +32,18 @@ export async function requestStore(
     // A short database admission transaction, independent of the long-running worker.
     // The shared lock makes limits authoritative across gateway replicas.
     await client.query('SELECT pg_advisory_xact_lock(87264005)');
+    const existing = await client.query<{ status: string }>(
+      'SELECT status FROM stores WHERE slug=$1',
+      [input.slug],
+    );
+    if (existing.rows[0])
+      throw new StoreRequestError(
+        409,
+        existing.rows[0].status === 'Deleting'
+          ? 'That store address is still being removed; wait a moment and try again'
+          : 'That store name is in use',
+      );
+
     const { rows } = await client.query<{ total: string; mine: string }>(
       'SELECT count(*) AS total,count(*) FILTER (WHERE created_by=$2) AS mine FROM stores WHERE team_id=$1',
       [user.teamId, user.userId],
