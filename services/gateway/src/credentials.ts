@@ -1,6 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import https from 'node:https';
-import type { OutgoingHttpHeaders } from 'node:http';
+import { KubernetesClient } from './k8s-client.ts';
 import {
   credentialKey,
   isSealed,
@@ -58,54 +57,22 @@ export class KubernetesCredentials implements CredentialStore {
     method: string,
     body?: unknown,
   ): Promise<Record<string, unknown>> {
-    const directory = '/var/run/secrets/kubernetes.io/serviceaccount';
-    const headers: OutgoingHttpHeaders = {
-      authorization: `Bearer ${readFileSync(`${directory}/token`, 'utf8').trim()}`,
-    };
-    if (body) headers['content-type'] = 'application/merge-patch+json';
-    return new Promise((resolve, reject) => {
-      const request = https.request(
-        {
-          hostname: process.env.KUBERNETES_SERVICE_HOST,
-          port: Number(process.env.KUBERNETES_SERVICE_PORT_HTTPS ?? 443),
-          path: this.path,
-          method,
-          headers,
-          ca: readFileSync(`${directory}/ca.crt`),
-          timeout: 3000,
-        },
-        (response) => {
-          let data = '';
-          response.on('data', (chunk) => {
-            data += chunk;
-            if (data.length > 1048576)
-              request.destroy(new Error('Secret exceeds limit'));
-          });
-          response.on('end', () => {
-            if (response.statusCode === 409) {
-              reject(new SecretConflictError('Credential Secret changed'));
-              return;
-            }
-            if (response.statusCode !== 200) {
-              reject(new Error('Credential Secret is unavailable'));
-              return;
-            }
-            try {
-              resolve(JSON.parse(data));
-            } catch {
-              reject(new Error('Invalid Secret response'));
-            }
-          });
-        },
+    let response;
+    try {
+      response = await new KubernetesClient().request(
+        method,
+        this.path,
+        body,
+        'application/merge-patch+json',
       );
-      request.on('timeout', () =>
-        request.destroy(new Error('Secret request timed out')),
-      );
-      request.on('error', () =>
-        reject(new Error('Credential Secret is unavailable')),
-      );
-      request.end(body ? JSON.stringify(body) : undefined);
-    });
+    } catch {
+      throw new Error('Credential Secret is unavailable');
+    }
+    if (response.status === 409)
+      throw new SecretConflictError('Credential Secret changed');
+    if (response.status !== 200 || typeof response.body !== 'object')
+      throw new Error('Credential Secret is unavailable');
+    return response.body as Record<string, unknown>;
   }
   async get(id: string): Promise<Credential | undefined> {
     const result = await this.request('GET');

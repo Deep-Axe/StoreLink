@@ -15,12 +15,29 @@ export function publicAddress(address: string): boolean {
     return false;
   }
 }
+// The MCP server of a store created by the provisioner (see store-manifests.ts).
+export const managedStoreOrigin =
+  /^http:\/\/woo-mcp\.storelink-store-[a-z][a-z0-9-]{0,11}\.svc\.cluster\.local:3001$/;
 export class UpstreamPolicy {
   origins: Set<string>;
   resolver: Resolver;
-  constructor(origins: string[], resolver: Resolver = resolve) {
+  managedStores: boolean;
+  constructor(
+    origins: string[],
+    resolver: Resolver = resolve,
+    managedStores = false,
+  ) {
     this.origins = new Set(origins);
     this.resolver = resolver;
+    this.managedStores = managedStores;
+  }
+  // Operator-approved private origins: the configured list and, when enabled,
+  // provisioned stores.
+  approved(origin: string): boolean {
+    return (
+      this.origins.has(origin) ||
+      (this.managedStores && managedStoreOrigin.test(origin))
+    );
   }
   validate(value: string): URL {
     let url: URL;
@@ -39,7 +56,7 @@ export class UpstreamPolicy {
       throw new RegistryInputError(
         'Upstream URL must not contain a query or fragment',
       );
-    if (this.origins.has(url.origin)) return url;
+    if (this.approved(url.origin)) return url;
     if (url.protocol !== 'https:')
       throw new RegistryInputError(
         'Public upstreams require HTTPS; private HTTP origins need operator approval',
@@ -77,13 +94,13 @@ export class UpstreamPolicy {
   }
   async check(value: string): Promise<URL> {
     const url = this.validate(value);
-    if (!this.origins.has(url.origin))
+    if (!this.approved(url.origin))
       await this.addresses(url.hostname.replace(/^\[|\]$/g, ''));
     return url;
   }
   connectionOptions(value: string): { lookup?: LookupFunction } {
     const url = this.validate(value);
-    if (this.origins.has(url.origin)) return {};
+    if (this.approved(url.origin)) return {};
     // This resolver supplies the checked addresses directly to the socket. No second DNS lookup.
     const lookup: LookupFunction = (hostname, options, callback) => {
       void this.addresses(hostname).then(
