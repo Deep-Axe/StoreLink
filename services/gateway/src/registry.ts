@@ -43,6 +43,7 @@ export class Registry {
   versions = new Map<string, number>();
   // Revision of every row the last sync processed, including rows that failed to load.
   seen = new Map<string, number>();
+  private recorded = new Map<string, string>();
   private catchingUp?: Promise<void>;
   clients = new Map<string, ReturnType<typeof upstreamClient>>();
   constructor(
@@ -199,8 +200,11 @@ export class Registry {
       await client?.end().catch(() => {});
     };
   }
+  // Writes only changes in this replica's own view, so a replica that lags
+  // behind another cannot overwrite a newer status on every dashboard poll.
   async recordHealth(): Promise<void> {
     for (const runtime of this.gateway.upstreams.values()) {
+      if (this.recorded.get(runtime.id) === runtime.status) continue;
       await this.store.pool.query(
         `WITH previous AS (
         SELECT id,team_id,slug,last_status FROM upstream_servers WHERE id=$1 FOR UPDATE
@@ -215,6 +219,7 @@ export class Registry {
           runtime.lastError ?? null,
         ],
       );
+      this.recorded.set(runtime.id, runtime.status);
     }
   }
   async list(actor: Identity) {

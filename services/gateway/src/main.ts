@@ -204,9 +204,6 @@ const refresh = setInterval(() => {
 }, 15000);
 refresh.unref();
 // Fast liveness probes catch short outages, such as a deleted pod being replaced.
-const recorded = new Map(
-  [...gateway.upstreams.values()].map((u) => [u.id, u.status]),
-);
 let checking = false;
 const health = setInterval(
   () => {
@@ -218,11 +215,7 @@ const health = setInterval(
         await Promise.all(
           [...gateway.upstreams.keys()].map((id) => gateway.checkHealth(id)),
         );
-        const upstreams = [...gateway.upstreams.values()];
-        if (upstreams.some((u) => recorded.get(u.id) !== u.status)) {
-          await registry?.recordHealth();
-          for (const u of upstreams) recorded.set(u.id, u.status);
-        }
+        await registry?.recordHealth();
       } catch {
         console.error('Upstream health check failed');
       } finally {
