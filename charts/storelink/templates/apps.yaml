@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "urumi.name" . }}-gateway
+  name: {{ include "storelink.name" . }}-gateway
 spec:
   replicas: 1
   selector:
-    matchLabels: { urumi/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+    matchLabels: { storelink/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
   template:
     metadata:
-      labels: { urumi/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+      labels: { storelink/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
-      serviceAccountName: {{ include "urumi.name" . }}-gateway
+      serviceAccountName: {{ include "storelink.name" . }}-gateway
       automountServiceAccountToken: true
       securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 }
       initContainers:
@@ -39,10 +39,10 @@ spec:
             - { name: UPSTREAM_SECRET_NAME, value: {{ .Values.upstreamSecretName | quote }} }
             - name: POD_NAMESPACE
               valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
-            - { name: TIME_MCP_URL, value: "http://{{ include "urumi.name" . }}-time-mcp:3002/mcp" }
-            - { name: OPERATIONS_MCP_URL, value: "http://{{ include "urumi.name" . }}-operations-mcp:3003/mcp" }
+            - { name: TIME_MCP_URL, value: "http://{{ include "storelink.name" . }}-time-mcp:3002/mcp" }
+            - { name: OPERATIONS_MCP_URL, value: "http://{{ include "storelink.name" . }}-operations-mcp:3003/mcp" }
             - name: UPSTREAM_ALLOWED_ORIGINS
-              value: {{ printf "http://%s-woo-mcp:3001,http://%s-time-mcp:3002,http://%s-operations-mcp:3003%s" (include "urumi.name" .) (include "urumi.name" .) (include "urumi.name" .) (ternary (printf ",%s" (join "," .Values.gateway.extraUpstreamOrigins)) "" (gt (len .Values.gateway.extraUpstreamOrigins) 0)) | quote }}
+              value: {{ printf "http://%s-woo-mcp:3001,http://%s-time-mcp:3002,http://%s-operations-mcp:3003%s" (include "storelink.name" .) (include "storelink.name" .) (include "storelink.name" .) (ternary (printf ",%s" (join "," .Values.gateway.extraUpstreamOrigins)) "" (gt (len .Values.gateway.extraUpstreamOrigins) 0)) | quote }}
             - { name: OPENAI_MODEL, value: {{ .Values.chat.model | quote }} }
             - { name: CHAT_PER_USER_HOUR, value: {{ .Values.chat.limits.perUserHour | quote }} }
             - { name: CHAT_PER_USER_CONCURRENT, value: {{ .Values.chat.limits.perUserConcurrent | quote }} }
@@ -51,7 +51,7 @@ spec:
             {{- if .Values.chat.enabled }}
             - { name: OPENAI_API_KEY_FILE, value: /secrets/openai-api-key }
             {{- end }}
-            - { name: WOO_MCP_URL, value: "http://{{ include "urumi.name" . }}-woo-mcp:3001/mcp" }
+            - { name: WOO_MCP_URL, value: "http://{{ include "storelink.name" . }}-woo-mcp:3001/mcp" }
             - { name: GATEWAY_ORIGIN, value: {{ .Values.gateway.publicUrl | quote }} }
             - { name: TEAM_ID, value: {{ .Values.teamId | quote }} }
           ports: [{ name: http, containerPort: 3000 }]
@@ -84,22 +84,22 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "urumi.name" . }}-gateway
+  name: {{ include "storelink.name" . }}-gateway
 spec:
-  selector: { urumi/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
+  selector: { storelink/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
   ports: [{ port: 3000, targetPort: http }]
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "urumi.name" . }}-woo-mcp
+  name: {{ include "storelink.name" . }}-woo-mcp
 spec:
   replicas: 1
   selector:
-    matchLabels: { urumi/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
+    matchLabels: { storelink/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
   template:
     metadata:
-      labels: { urumi/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
+      labels: { storelink/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
       automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 }
@@ -109,9 +109,9 @@ spec:
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           command: [node, services/woocommerce-mcp/src/main.ts]
           env:
-            - { name: WOO_MCP_ORIGIN, value: "http://{{ include "urumi.name" . }}-woo-mcp:3001" }
+            - { name: WOO_MCP_ORIGIN, value: "http://{{ include "storelink.name" . }}-woo-mcp:3001" }
             - { name: STORE_PUBLIC_URL, value: {{ .Values.store.publicUrl | quote }} }
-            - { name: STORE_CONNECT_SERVICE, value: {{ include "urumi.name" . }}-wordpress }
+            - { name: STORE_CONNECT_SERVICE, value: {{ include "storelink.name" . }}-wordpress }
             - { name: WOO_MCP_TOKEN_FILE, value: /secrets/woo-mcp-token }
             - { name: WOO_CONSUMER_KEY_FILE, value: /secrets/woo-consumer-key }
             - { name: WOO_CONSUMER_SECRET_FILE, value: /secrets/woo-consumer-secret }
@@ -134,7 +134,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "urumi.name" . }}-woo-mcp
+  name: {{ include "storelink.name" . }}-woo-mcp
 spec:
-  selector: { urumi/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
+  selector: { storelink/component: woo-mcp, app.kubernetes.io/instance: {{ .Release.Name }} }
   ports: [{ port: 3001, targetPort: http }]

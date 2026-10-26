@@ -14,7 +14,7 @@ Verified on 2026-10-19. Docker group membership, daemon access, outbound package
 | Google Chrome       | 154.0.8037.92; Playwright headless launch succeeds                                 |
 | Build prerequisites | Git, curl, Python 3, make, and GCC are available                                   |
 
-Use `.tools/bin/kubectl` with the default k3d cluster. The host's kubectl 1.37 is two minor versions newer than that cluster; Kubernetes supports kubectl within one minor version of the API server. The install helper now selects the k3d default's minor version, or accepts `URUMI_KUBECTL_VERSION` when a different cluster image is chosen. [Kubernetes version policy](https://kubernetes.io/releases/version-skew-policy/)
+Use `.tools/bin/kubectl` with the default k3d cluster. The host's kubectl 1.37 is two minor versions newer than that cluster; Kubernetes supports kubectl within one minor version of the API server. The install helper now selects the k3d default's minor version, or accepts `STORELINK_KUBECTL_VERSION` when a different cluster image is chosen. [Kubernetes version policy](https://kubernetes.io/releases/version-skew-policy/)
 
 ## Project packages
 
@@ -41,7 +41,7 @@ The helper prefers an existing Node 24 installation over the older project-local
 
 ## Cluster and remaining setup
 
-No further host packages are needed for the implemented core. The `urumi` k3d cluster is running with private kubeconfig `.data/kubeconfig`; use `KUBECONFIG="$PWD/.data/kubeconfig" .tools/bin/kubectl -n urumi get pods`. The root README documents reproducible image builds, Helm installation and credentials retrieval.
+No further host packages are needed for the implemented core. The `storelink` k3d cluster is running with private kubeconfig `.data/kubeconfig`; use `KUBECONFIG="$PWD/.data/kubeconfig" .tools/bin/kubectl -n storelink get pods`. The root README documents reproducible image builds, Helm installation and credentials retrieval.
 
 WordPress/WooCommerce, MariaDB, PostgreSQL, the gateway/dashboard and three MCP services are deployed. Real COD checkout, OAuth REST calls, persisted audits and browser access controls have passed. Native Argon2 and React production builds run inside the application images too. No host databases or Python virtual environment are needed.
 

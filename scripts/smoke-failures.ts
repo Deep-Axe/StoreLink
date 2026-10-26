@@ -14,13 +14,13 @@ const command = promisify(execFile),
   kubectl = kubectlCommand();
 const env = { ...process.env, KUBECONFIG: `${process.cwd()}/.data/kubeconfig` };
 const kube = (...args: string[]) =>
-  command(kubectl, ['-n', 'urumi', ...args], {
+  command(kubectl, ['-n', 'storelink', ...args], {
     env,
     timeout: 180000,
     maxBuffer: 1024 * 1024,
   });
 console.log(`Failure check started at ${new Date().toISOString()}`);
-const origin = 'http://dashboard.urumi.localhost';
+const origin = 'http://dashboard.storelink.localhost';
 const material = JSON.parse(
   readFileSync('.data/cluster-secrets.json', 'utf8'),
 ) as Record<string, string>;
@@ -34,7 +34,7 @@ const password = Buffer.from(
 const login = await fetch(`${origin}/api/login`, {
   method: 'POST',
   headers: { origin, 'content-type': 'application/json' },
-  body: JSON.stringify({ email: 'admin@urumi.local', password }),
+  body: JSON.stringify({ email: 'admin@storelink.local', password }),
 });
 assert.equal(login.status, 200);
 const cookie = login.headers.get('set-cookie')!.split(';')[0];
@@ -74,11 +74,13 @@ type Server = {
   enabled: boolean;
   status: string;
 };
-let client = new Client({ name: 'urumi-failure-check', version: '0.1.0' });
-const callTimeoutMs = Number(process.env.URUMI_SMOKE_MCP_TIMEOUT_MS ?? 20000);
+let client = new Client({ name: 'storelink-failure-check', version: '0.1.0' });
+const callTimeoutMs = Number(
+  process.env.STORELINK_SMOKE_MCP_TIMEOUT_MS ?? 20000,
+);
 if (!Number.isFinite(callTimeoutMs) || callTimeoutMs < 20000)
   throw new Error(
-    'URUMI_SMOKE_MCP_TIMEOUT_MS must be at least 20000 (gateway call budget plus margin)',
+    'STORELINK_SMOKE_MCP_TIMEOUT_MS must be at least 20000 (gateway call budget plus margin)',
   );
 const transport = () =>
   new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
@@ -99,7 +101,7 @@ const transport = () =>
   });
 await until(async () => {
   await client.close();
-  client = new Client({ name: 'urumi-failure-check', version: '0.1.0' });
+  client = new Client({ name: 'storelink-failure-check', version: '0.1.0' });
   await client.connect(transport());
   return true;
 });
@@ -116,16 +118,16 @@ try {
     'delete',
     'pods',
     '-l',
-    'urumi/component=operations-mcp',
+    'storelink/component=operations-mcp',
     '--wait=false',
   );
-  await kube('scale', 'deployment/urumi-operations-mcp', '--replicas=0');
+  await kube('scale', 'deployment/storelink-operations-mcp', '--replicas=0');
   await kube(
     'wait',
     '--for=delete',
     'pods',
     '-l',
-    'urumi/component=operations-mcp',
+    'storelink/component=operations-mcp',
     '--timeout=60s',
   );
   const failureStarted = performance.now();
@@ -147,11 +149,11 @@ try {
   console.log(
     'Killed operations pod and held it down: dashboard reports Unreachable; time calls remain healthy.',
   );
-  await kube('scale', 'deployment/urumi-operations-mcp', '--replicas=1');
+  await kube('scale', 'deployment/storelink-operations-mcp', '--replicas=1');
   await kube(
     'rollout',
     'status',
-    'deployment/urumi-operations-mcp',
+    'deployment/storelink-operations-mcp',
     '--timeout=90s',
   );
   await until(async () =>
@@ -166,15 +168,20 @@ try {
   )!;
   await api('/servers', { ...time, enabled: false });
   const auditsBefore = await api<{ id: string }[]>('/audit');
-  await kube('rollout', 'restart', 'deployment/urumi-gateway');
-  await kube('rollout', 'status', 'deployment/urumi-gateway', '--timeout=90s');
+  await kube('rollout', 'restart', 'deployment/storelink-gateway');
+  await kube(
+    'rollout',
+    'status',
+    'deployment/storelink-gateway',
+    '--timeout=90s',
+  );
   await until(async () => {
     await api('/me');
     return true;
   });
   await until(async () => {
     await client.close();
-    client = new Client({ name: 'urumi-failure-check', version: '0.1.0' });
+    client = new Client({ name: 'storelink-failure-check', version: '0.1.0' });
     await client.connect(transport());
     return true;
   });
@@ -198,11 +205,11 @@ try {
   const evidence = JSON.parse(
     readFileSync('.data/last-store-check.json', 'utf8'),
   ) as { productId: number; orderId: number };
-  await kube('rollout', 'restart', 'deployment/urumi-wordpress');
+  await kube('rollout', 'restart', 'deployment/storelink-wordpress');
   await kube(
     'rollout',
     'status',
-    'deployment/urumi-wordpress',
+    'deployment/storelink-wordpress',
     '--timeout=120s',
   );
   // Readiness probes use SHORTINIT; service endpoint propagation and full Woo boot
@@ -226,9 +233,11 @@ try {
     `WordPress replacement retained product/order data, including order ${evidence.orderId}.`,
   );
 } finally {
-  await kube('scale', 'deployment/urumi-operations-mcp', '--replicas=1').catch(
-    () => {},
-  );
+  await kube(
+    'scale',
+    'deployment/storelink-operations-mcp',
+    '--replicas=1',
+  ).catch(() => {});
   if (time)
     await until(async () => {
       await api('/servers', { ...time!, enabled: true });

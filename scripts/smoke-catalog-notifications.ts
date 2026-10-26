@@ -9,7 +9,7 @@ console.log(
   `Catalog notification check started at ${new Date().toISOString()}`,
 );
 const origin =
-  process.env.URUMI_DASHBOARD_URL ?? 'http://dashboard.urumi.localhost';
+  process.env.STORELINK_DASHBOARD_URL ?? 'http://dashboard.storelink.localhost';
 const secrets = JSON.parse(readFileSync('.data/cluster-secrets.json', 'utf8'));
 const password = Buffer.from(
   secrets['dashboard-admin-password'],
@@ -18,7 +18,7 @@ const password = Buffer.from(
 const login = await fetch(origin + '/api/login', {
   method: 'POST',
   headers: { origin, 'content-type': 'application/json' },
-  body: JSON.stringify({ email: 'admin@urumi.local', password }),
+  body: JSON.stringify({ email: 'admin@storelink.local', password }),
 });
 assert.equal(login.status, 200);
 const cookie = login.headers.get('set-cookie')!.split(';')[0];

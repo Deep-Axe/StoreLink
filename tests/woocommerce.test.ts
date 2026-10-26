@@ -8,7 +8,7 @@ import { wooHttpHandler } from '../services/woocommerce-mcp/src/server.ts';
 
 test('OAuth signatures bind the canonical hostname, HTTP method, encoded filters and timestamp', () => {
   const url = new URL(
-    'http://store.urumi.test/wp-json/wc/v3/orders?search=a%20b%26c&page=2',
+    'http://store.storelink.test/wp-json/wc/v3/orders?search=a%20b%26c&page=2',
   );
   const signed = oauthAuthorization(
     'GET',
@@ -32,7 +32,9 @@ test('OAuth signatures bind the canonical hostname, HTTP method, encoded filters
     oauthAuthorization(
       'GET',
       new URL(
-        url.toString().replace('store.urumi.test', 'wordpress.urumi.svc'),
+        url
+          .toString()
+          .replace('store.storelink.test', 'wordpress.storelink.svc'),
       ),
       'ck_fixture',
       'cs_fixture',
@@ -54,14 +56,14 @@ test('OAuth signatures bind the canonical hostname, HTTP method, encoded filters
 test('public HTTP and HTTPS settings both use direct HTTP/OAuth without leaking raw secrets', async () => {
   for (const scheme of ['http', 'https']) {
     const client = new WooStoreClient({
-      publicUrl: `${scheme}://store.urumi.test`,
-      connectService: 'wordpress.urumi.svc',
+      publicUrl: `${scheme}://store.storelink.test`,
+      connectService: 'wordpress.storelink.svc',
       consumerKey: 'ck_fixture',
       consumerSecret: 'cs_fixture',
       async send(input) {
         assert.equal(
           input.url.toString(),
-          'http://store.urumi.test/wp-json/wc/v3/products',
+          'http://store.storelink.test/wp-json/wc/v3/products',
         );
         assert.match(input.headers.authorization, /^OAuth /);
         assert.equal(input.url.toString().includes('cs_fixture'), false);

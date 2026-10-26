@@ -154,7 +154,7 @@ export function gatewayHttpHandler(
         );
       const newId = randomUUID();
       const server = new Server(
-        { name: 'urumi-gateway', version: '0.1.0' },
+        { name: 'storelink-gateway', version: '0.1.0' },
         { capabilities: { tools: { listChanged: true } } },
       );
       server.setRequestHandler(ListToolsRequestSchema, async () => ({

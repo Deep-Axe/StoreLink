@@ -1,157 +1,244 @@
 # StoreLink
 
-A WooCommerce store and team MCP gateway on Kubernetes. Connect upstream servers once, then use their tools from the React dashboard or one authenticated MCP endpoint.
+StoreLink runs a WooCommerce store on Kubernetes and puts a team MCP gateway in front of it. An administrator registers MCP servers once in a React dashboard. Every team member can then use the tools of all enabled servers through a single authenticated MCP endpoint, or through a chat agent in the dashboard.
 
-The local store, dashboard, PostgreSQL repository and three MCP servers are implemented. Real COD checkout and MCP store operations have passed. Chat has a bounded OpenAI Responses tool loop with deterministic tests and a completed live two-user demonstration using `gpt-6-luna`. See [verification](docs/verification.md) for the exact evidence and remaining work, and [project scope](docs/project-plan.md) for requirements and completion gates.
+## Features
+
+- **WooCommerce store:** WordPress, WooCommerce and MariaDB in the cluster, with persistent storage and cash-on-delivery checkout.
+- **WooCommerce MCP server:** list products, create product, list orders, get order and update order status, served over Streamable HTTP. Reachable only from the gateway.
+- **MCP gateway:** aggregates the tools of every enabled upstream behind one endpoint, namespaces tool names per server, and routes each call to its server. Every upstream call has a timeout.
+- **Dashboard:** server registration with live status (Connected, Unreachable, Disabled) and the tools each server exposes. Also covers member invitations, API keys, and an audit log of every tool call.
+- **Chat agent:** an OpenAI Responses tool loop that calls tools through the gateway as the signed-in user and shows each tool call it makes.
+- **Access control:** admin and member roles, per-user API keys stored as HMAC digests, immediate revocation, and upstream credentials held server-side.
+- **Deployment:** one Helm chart with separate values for local k3d and single-node k3s.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Shopper --> Ingress
+  Browser[Dashboard] --> Ingress
+  Client[MCP client] --> Ingress
+  Ingress --> WP[WordPress + WooCommerce]
+  Ingress --> GW[Gateway + dashboard API]
+  GW --> PG[(PostgreSQL)]
+  GW --> WooMCP[WooCommerce MCP]
+  GW --> TimeMCP[Time MCP]
+  GW --> OpsMCP[Operations MCP]
+  GW --> OpenAI[OpenAI Responses API]
+  WooMCP --> WP
+  WP --> DB[(MariaDB)]
+```
+
+| Component                  | Responsibility                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------ |
+| `apps/dashboard`           | React dashboard: connections, access, activity and chat                              |
+| `services/gateway`         | Express backend, aggregated MCP endpoint, upstream registry, audit log and chat loop |
+| `services/woocommerce-mcp` | MCP server for store products and orders, using the WooCommerce REST API             |
+| `services/time-mcp`        | Store timezone and day-window tools                                                  |
+| `services/operations-mcp`  | Sales target and fulfillment policy tools                                            |
+| `packages/shared`          | API key hashing, secret loading and MCP HTTP handling                                |
+| `charts/storelink`         | Helm chart with `values-local.yaml` and `values-prod.yaml`                           |
+
+Tools are exposed as `<server>__<tool>`, for example `woo__list_orders` and `time__get_day_window`. The time and operations servers both provide `get_status`, which appears as `time__get_status` and `ops__get_status`. The [system design](docs/system-design.md) describes routing, failure handling and the store integration, and the [threat model](docs/threat-model.md) covers credentials, upstream trust and member isolation.
+
+## Requirements
+
+- Linux with Docker Engine
+- Node.js 24
+- kubectl, Helm and k3d
+- Git, curl and Python 3
+- At least 4 GiB of memory for the k3d node
+- An OpenAI API key, for the chat agent
+
+`scripts/install-dev-tools.sh` installs Node, kubectl, Helm and k3d into `.tools/bin` if they are missing.
 
 ## Local setup
 
-Prerequisites: Linux, Node 24, Docker Engine with working daemon/group access, Helm, k3d, kubectl, Git, curl and Python 3. Allocate at least 4 GiB to the k3d node and additional memory for image builds/browser checks. No host database or Python virtual environment is needed.
-
 ```sh
-# Optional: install user-local Node/Helm/k3d/kubectl if missing.
-scripts/install-dev-tools.sh
-# If using its tools, add .tools/bin to PATH; prefer your installed Node 24.
 scripts/install-dependencies.sh
 scripts/local-up.sh
 export KUBECONFIG="$PWD/.data/kubeconfig"
-.tools/bin/kubectl -n urumi get pods
+kubectl -n storelink get pods
 ```
 
-Setup creates the `urumi` cluster, generates Secrets, builds/imports images, and installs `charts/urumi`. Rerun after changes; image tags change and existing data, passwords and key revocations are retained. The generated recovery file `.data/cluster-secrets.json` contains credentials even though its values are base64 encoded; keep it private and backed up.
+`local-up.sh` creates the k3d cluster, generates credentials into Kubernetes Secrets, builds and imports the images, and installs the chart. Run it again to deploy changes; data, passwords and key revocations persist across runs. The generated credentials are also saved to `.data/cluster-secrets.json`. Keep that file private.
 
-- Storefront: <http://store.urumi.localhost>
-- Dashboard: <http://dashboard.urumi.localhost>
-- WordPress admin: <http://store.urumi.localhost/wp-admin/>
-- Gateway MCP: <http://dashboard.urumi.localhost/mcp>
+| Service         | URL                                          |
+| --------------- | -------------------------------------------- |
+| Storefront      | <http://store.storelink.localhost>           |
+| WordPress admin | <http://store.storelink.localhost/wp-admin/> |
+| Dashboard       | <http://dashboard.storelink.localhost>       |
+| MCP endpoint    | <http://dashboard.storelink.localhost/mcp>   |
 
-The `*.localhost` hosts resolve to loopback in the verified browser/host configuration. k3d binds ports 80/443 on `127.0.0.1`; no hosts-file edits are needed here. If your resolver does not resolve these hosts, map both names to `127.0.0.1` locally. Pods use Service DNS for MCP and a private canonical-host lookup for WooCommerce REST.
+Most systems resolve `*.localhost` to `127.0.0.1`, and k3d listens on ports 80 and 443 there. If your resolver doesn't, add both hostnames to `/etc/hosts`.
 
-Run this **in your own terminal** to retrieve the generated dashboard and WordPress passwords:
+To show the generated passwords:
 
 ```sh
 node scripts/local-credentials.ts --show
 ```
 
-Sign in as `admin@urumi.local` or `member@urumi.local`. The WordPress username is `admin`. These are separate accounts.
+| Account          | Login                    |
+| ---------------- | ------------------------ |
+| Dashboard admin  | `admin@storelink.local`  |
+| Dashboard member | `member@storelink.local` |
+| WordPress admin  | `admin`                  |
 
-## Place an order
+## Usage
 
-1. Open the storefront and choose the seeded demo mug or a product created through MCP/chat.
-2. Add it to the cart and open `/checkout/`.
-3. Enter a test Indian address, select Karnataka and a valid postcode (for example Bengaluru, `560001`). Choose cash on delivery and place the order.
-4. Confirm the order number on the receipt, then open WordPress admin → WooCommerce → Orders. No payment-provider account is needed.
+### Place an order
 
-## Connect an external MCP client
+1. Open the storefront and add a product to the cart.
+2. Go to checkout and enter a test address, for example Bengaluru, Karnataka, `560001`.
+3. Choose **Cash on delivery** and place the order.
+4. Find the order in WordPress admin under **WooCommerce → Orders**.
 
-Sign in to the dashboard → **Access** → generate a key for your account. Save it when displayed; it cannot be retrieved again. Configure a client supporting Streamable HTTP:
+### Connect an MCP client
+
+In the dashboard, open **Access** and generate an API key. It is shown only once. Then add the gateway to any MCP client that supports Streamable HTTP:
 
 ```json
 {
   "mcpServers": {
-    "urumi": {
+    "storelink": {
       "type": "http",
-      "url": "http://dashboard.urumi.localhost/mcp",
-      "headers": { "Authorization": "Bearer <your gateway key>" }
+      "url": "http://dashboard.storelink.localhost/mcp",
+      "headers": { "Authorization": "Bearer <your API key>" }
     }
   }
 }
 ```
 
-For the required third-party demonstration, save the configuration above as `.data/member-mcp.json` (permissions `600`) and use real Claude Code:
+With Claude Code:
 
 ```sh
-node scripts/with-cluster-lock.ts -- claude -p --mcp-config .data/member-mcp.json --strict-mcp-config --allowedTools mcp__urumi \
-  "What orders came in today in the store's timezone? Use the time server for the day window and WooCommerce for orders. Then read the operations sales target and compare. Do not change anything."
+claude -p --mcp-config member-mcp.json --strict-mcp-config --allowedTools mcp__storelink \
+  "What orders came in today in the store's timezone? Then compare today's sales with the operations sales target."
 ```
 
-The gateway configuration contains only its URL and the member key. Claude Code uses its own authentication/subscription, separately from dashboard OpenAI usage. This command passed the user-supplied QA run; see [client evidence](docs/verification.md#third-party-client-evidence).
+With MCP Inspector, run `npx @modelcontextprotocol/inspector`, choose Streamable HTTP, and enter the same URL and header.
 
-Client configuration wrappers vary; the required connection settings are the URL, Streamable HTTP, and that header. MCP Inspector is installed: run `npx @modelcontextprotocol/inspector`, choose Streamable HTTP, and enter those settings. Keep its local proxy token enabled.
+The client sees nine tools across `woo__`, `time__` and `ops__`. When an administrator changes a server, the gateway sends a tool-list change notification to the team's connected sessions. Calls to disabled tools, and calls made with revoked keys, are rejected. Idle sessions expire after 15 minutes.
 
-Expect nine tools across `woo__`, `time__` and `ops__`, including both `time__get_status` and `ops__get_status`. The gateway advertises tool-list changes and sends team-scoped SSE notifications to connected clients. Clients that support automatic refresh update their catalogs when a server changes; otherwise refresh or reconnect manually. Disabled tools and revoked keys fail on the next request even when the client caches old tools. Sessions are bound to the issuing user/key, expire after 15 minutes idle, and are lost on gateway replacement; reconnect after a 404 session-expired response.
-
-For an optional terminal convenience using the same inexpensive OpenAI model, save user B’s generated gateway key in a private file (for example `.data/member-key`) and run:
+`scripts/external-chat.ts` is a small terminal agent built on the same chat loop, useful for scripted checks:
 
 ```sh
-URUMI_GATEWAY_KEY_FILE=.data/member-key node --env-file=.env scripts/external-chat.ts "Use the time service to find today, then list today's store orders."
+STORELINK_GATEWAY_KEY_FILE=.data/member-key node --env-file=.env scripts/external-chat.ts "List today's store orders."
 ```
 
-Its MCP configuration contains only the gateway URL and user B’s key; its separate OpenAI key belongs in `.env`. The command prints called tool names and token usage; add `--json` before the prompt for structured results. This flow passed a real-model check, but reuses our dashboard chat loop and does not serve as the required third-party-client evidence.
+### Dashboard chat
 
-## Use dashboard chat
-
-Put your OpenAI API key in the ignored `.env`, then rerun setup:
+Add your OpenAI key to `.env` and redeploy:
 
 ```dotenv
-OPENAI_API_KEY=your-key-here
+OPENAI_API_KEY=your-key
 ```
 
 ```sh
 scripts/local-up.sh
 ```
 
-Setup copies the key into a Kubernetes Secret and enables chat. Set the model with Helm’s `chat.model` (default `gpt-6-luna`); access to this model was verified with the owner’s key. The browser never receives this key. OpenAI API usage is the only paid dependency for the local chat; all infrastructure runs locally.
+The key is stored in a Kubernetes Secret and used only by the gateway. Example prompts:
 
-The blank `WOO_CONSUMER_KEY_FILE` and `WOO_CONSUMER_SECRET_FILE` entries in `.env.example` are optional file paths for running the adapter outside Kubernetes. Cluster bootstrap generates the WooCommerce REST consumer key/secret and mounts them at `/secrets/woo-consumer-key` and `/secrets/woo-consumer-secret` in the adapter pod. Leave those local entries blank when using `scripts/local-up.sh`.
+- "Create a product named Team Mug priced at 149.00."
+- "What orders came in today?"
+- "Compare today's order total with our operations sales target."
 
-Try “Create a product named Team Mug priced at 149.00”, place an order for it, then ask “Use the store timezone to tell me what orders came in today.” For multiple sources, ask “Compare today’s order total with our operations sales target.” Tool activity appears under the answer, and **Activity** shows the attributed audit records. Conversations and token usage are saved per user. A turn is limited to eight model rounds, twenty tool calls, and a 120-second deadline; accepted chat turns are limited to fifteen per user per hour. Invalid input, inaccessible conversations and busy denials do not consume that allowance. Defaults allow one active turn per user, four per team and sixteen globally; configure `chat.limits` in Helm. Limits are process-local and reset on restart; one gateway replica is supported.
+Each answer lists the tools it called, and **Activity** shows the matching audit records. Conversations and token usage are saved per user.
 
-Admins manage servers in **Connections**, invite members and issue/revoke keys in **Access**, and review calls in **Activity**. Register a public HTTPS `/mcp` URL and optional static credential directly in the dashboard. DNS must resolve exclusively to public addresses, checked again when each connection opens; redirects are rejected. Private/internal origins require operator approval through `gateway.extraUpstreamOrigins` before registration. Set `Authorization` to `Bearer …` for bearer authentication, or use the required custom header. Credentials are stored in a dedicated Kubernetes Secret and never returned by the API.
+### Administration
 
-## Production-like VPS setup
+- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. Public HTTPS servers can be added directly. Cluster-internal origins must be listed in `gateway.extraUpstreamOrigins`. Credentials are stored in a Kubernetes Secret and never returned by the API.
+- **Access:** invite members, and issue or revoke API keys.
+- **Activity:** the audit log of every tool call, showing user, server, tool, time, duration and outcome.
 
-This is a single-node deployment, not HA. The chart and production rendering are checked locally; a public VPS deployment has not been performed.
+## Configuration
 
-1. Provision a Linux VPS with sufficient SSD storage and workload capacity. Start with 4 vCPU/8 GiB for headroom; this is a project estimate, not a load-test result. Install k3s with Traefik and NetworkPolicy enforcement using the [official quick-start](https://docs.k3s.io/quick-start) and [network requirements](https://docs.k3s.io/installation/requirements). Use a matching kubectl. Restrict SSH/Kubernetes API access and expose public HTTP/HTTPS.
-2. Build and push `images/app/Dockerfile` and `images/store/Dockerfile` to a registry the VPS can pull. The store build requires `--build-arg WOOCOMMERCE_SHA256=5317434cb381b5fdc7c1dd6ee258324f08c390976aaf8d1199f2a0e9a3ab8586`. For a private registry, configure k3s registry credentials on the node.
-3. Copy `charts/urumi/values-prod.yaml` to an ignored values file. Replace image references, public hosts and HTTPS URLs. Point DNS A/AAAA records to the VPS. Choose the storage class and PVC capacities before installation; `local-path` stores data on that node and needs off-node backups.
-4. Select the production kubeconfig and create independent credentials. Keep namespace `urumi` and the default resource/Secret names when using the supplied helper:
+Common chart values:
+
+| Value                                                                      | Default                                                      | Description                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
+| `chat.enabled`                                                             | `false` (set by `local-up.sh`)                               | Enables the chat agent                                   |
+| `chat.model`                                                               | `gpt-6-luna`                                                 | OpenAI model used by the chat agent                      |
+| `chat.limits.perUserHour`                                                  | `15`                                                         | Chat turns per user per hour                             |
+| `chat.limits.perUserConcurrent` / `perTeamConcurrent` / `globalConcurrent` | `1` / `4` / `16`                                             | Concurrent chat turns                                    |
+| `gateway.extraUpstreamOrigins`                                             | `[]`                                                         | Cluster-internal origins allowed as upstreams            |
+| `store.host`, `gateway.host`                                               | `store.storelink.localhost`, `dashboard.storelink.localhost` | Public hostnames                                         |
+| `store.timezone`                                                           | `Asia/Kolkata`                                               | Store timezone, which defines "today"                    |
+| `storage.className`                                                        | `local-path`                                                 | Storage class for the persistent volumes                 |
+| `ingress.tls.enabled`                                                      | `false`                                                      | Serves both hosts over TLS from `ingress.tls.secretName` |
+
+Each chat turn is limited to 8 model rounds, 20 tool calls and 120 seconds.
+
+## Production deployment (k3s)
+
+The same chart deploys to a single-node k3s server. The differences are in `values-prod.yaml` and the Secrets you supply.
+
+1. Install k3s with Traefik and NetworkPolicy enforcement ([quick start](https://docs.k3s.io/quick-start)). Open ports 80 and 443, and restrict SSH and Kubernetes API access.
+2. Build both images and push them to a registry the server can pull from:
 
    ```sh
-   export KUBECONFIG=/path/to/private/production-kubeconfig
-   URUMI_STATE_DIR=.data/production node scripts/prepare-cluster-secrets.ts
+   docker build -f images/app/Dockerfile -t <registry>/storelink/app:<tag> .
+   docker build -f images/store/Dockerfile \
+     --build-arg WOOCOMMERCE_SHA256=5317434cb381b5fdc7c1dd6ee258324f08c390976aaf8d1199f2a0e9a3ab8586 \
+     -t <registry>/storelink/wordpress:<tag> .
    ```
 
-   The helper uses `URUMI_KUBECTL` if set, otherwise the project-local kubectl or PATH fallback. Supply `OPENAI_API_KEY` through the environment or ignored `.env`, and set `chat.enabled: true` in your deployment values. Retrieve production bootstrap passwords with `URUMI_STATE_DIR=.data/production node scripts/local-credentials.ts --show`.
-
-5. Obtain a certificate covering both hosts and create TLS Secret `urumi-tls`, or use your existing certificate controller. Keep private keys outside the repository:
+3. Copy `charts/storelink/values-prod.yaml` to a private file. Set the image references, hostnames and public URLs, the storage class and the volume sizes. Point DNS records for both hostnames at the server.
+4. Generate credentials into the cluster:
 
    ```sh
-   kubectl -n urumi create secret tls urumi-tls --cert=/private/fullchain.pem --key=/private/privkey.pem
-   helm lint charts/urumi -f /private/production-values.yaml
-   helm upgrade --install urumi charts/urumi -n urumi -f /private/production-values.yaml --wait --timeout 10m
-   kubectl -n urumi wait --for=condition=complete jobs -l urumi/component=store-bootstrap --timeout=120s
+   export KUBECONFIG=/path/to/production-kubeconfig
+   STORELINK_STATE_DIR=.data/production node scripts/prepare-cluster-secrets.ts
    ```
 
-6. Verify both HTTPS sites, checkout, keys and chat. Back up PostgreSQL, MariaDB, WordPress content, and Secrets, and test restores. Enable Kubernetes Secret encryption at rest and protect kubeconfig/recovery files. Local/prod behavior differs through values and supplied Secrets; the REST adapter uses the same direct HTTP/OAuth transport in both.
+   Provide `OPENAI_API_KEY` in the environment and set `chat.enabled: true` in your values file.
 
-A VPS, DNS/domain, registry storage and OpenAI usage may cost money. No paid service has been provisioned automatically. See [design](docs/system-design.md) and [threat model](docs/threat-model.md).
+5. Create the TLS Secret and install the chart:
 
-## Development and verification
+   ```sh
+   kubectl -n storelink create secret tls storelink-tls --cert=fullchain.pem --key=privkey.pem
+   helm upgrade --install storelink charts/storelink -n storelink -f production-values.yaml --wait --timeout 10m
+   kubectl -n storelink wait --for=condition=complete jobs -l storelink/component=store-bootstrap --timeout=120s
+   ```
+
+6. Schedule backups of PostgreSQL, MariaDB, WordPress uploads and Secrets, and enable Secret encryption at rest.
+
+## Development
 
 ```sh
 npm run typecheck
 npm test
 npm run build:dashboard
 npm run format:check
-helm lint charts/urumi -f charts/urumi/values-local.yaml
-helm template urumi charts/urumi -f charts/urumi/values-prod.yaml
+helm lint charts/storelink -f charts/storelink/values-local.yaml
+helm template storelink charts/storelink -f charts/storelink/values-prod.yaml
 ```
 
-Run cluster checks sequentially; the failure check deliberately interrupts workloads:
+Cluster smoke tests run against the local deployment:
 
 ```sh
-node scripts/smoke-cluster.ts       # Creates a product and a real COD order
-node scripts/smoke-dashboard.ts     # Two browser users, invitations, CRUD and key controls
-node scripts/smoke-failures.ts      # Outage/recovery and replacement persistence
-node --env-file=.env scripts/smoke-chat.ts # Paid live-model/browser acceptance; creates demo data
+node scripts/smoke-cluster.ts       # store tools and storefront checkout
+node scripts/smoke-dashboard.ts     # dashboard, invitations, keys and server management
+node scripts/smoke-failures.ts      # upstream outage, recovery and persistence
+node --env-file=.env scripts/smoke-chat.ts  # live chat flow (uses the OpenAI API)
 ```
 
-Browser checks use installed Google Chrome through Playwright. `npm run dev:dashboard` starts Vite and proxies API requests to the local deployed gateway (override with `URUMI_DEV_BACKEND`); use the deployed dashboard for final cookie/origin integration checks. Production PostgreSQL is required for dashboard/auth/chat; the standalone SQLite backend is only a gateway test/development slice.
+The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` starts Vite with API requests proxied to the deployed gateway. Scripts that modify the cluster take a shared lock; wrap manual changes with `node scripts/with-cluster-lock.ts -- <command>`.
 
-Source: `apps/dashboard/`, `services/gateway/` (including chat), `services/woocommerce-mcp/`, `services/time-mcp/`, `services/operations-mcp/`, `packages/shared/`, `charts/`, `scripts/`, `tests/`.
+## Additional features
 
-Extras implemented: owner-scoped conversations/token accounting, team-scoped authorization, expiring single-use invitations, CSRF/throttling, minimized order results, persisted connection history and a credential-origin allowlist. See [verification](docs/verification.md). Multi-store provisioning remains an optional extension and is not implemented.
+- Owner-scoped chat conversations with token accounting
+- Single-use, expiring member invitations
+- CSRF protection and request throttling
+- Order results without customer contact details
+- Persisted connection status history
+- SSRF checks on upstream registration
 
-For parallel contributor/agent work, use separate Git worktrees and the shared-cluster lock described in [the agent workflow](docs/agent-workflow.md). Deploy and smoke scripts lock automatically; wrap manual cluster mutations and client demos with `node scripts/with-cluster-lock.ts -- <command>`. Preview scoped QA cleanup with `node scripts/cleanup-qa.ts`, then run it with `--apply` when appropriate. See [QA fixes and evidence](docs/bugfix-verification.md) for the stacked review branches and checks.
+## Documentation
+
+- [System design and tradeoffs](docs/system-design.md)
+- [Threat model](docs/threat-model.md)
+- [Verification](docs/verification.md)
+- [Development environment](docs/development-environment.md)

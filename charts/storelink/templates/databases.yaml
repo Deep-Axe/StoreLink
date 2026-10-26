@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "urumi.name" . }}-postgres
+  name: {{ include "storelink.name" . }}-postgres
 spec:
   replicas: 1
   strategy: { type: Recreate }
   selector:
-    matchLabels: { urumi/component: postgres, app.kubernetes.io/instance: {{ .Release.Name }} }
+    matchLabels: { storelink/component: postgres, app.kubernetes.io/instance: {{ .Release.Name }} }
   template:
     metadata:
-      labels: { urumi/component: postgres, app.kubernetes.io/instance: {{ .Release.Name }} }
+      labels: { storelink/component: postgres, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
       automountServiceAccountToken: false
       containers:
@@ -17,41 +17,41 @@ spec:
           image: {{ .Values.images.postgres | quote }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           env:
-            - { name: POSTGRES_USER, value: urumi }
-            - { name: POSTGRES_DB, value: urumi }
+            - { name: POSTGRES_USER, value: storelink }
+            - { name: POSTGRES_DB, value: storelink }
             - name: POSTGRES_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: postgres-password } }
             - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
           ports: [{ containerPort: 5432, name: postgres }]
-          startupProbe: { exec: { command: [pg_isready, -U, urumi] }, periodSeconds: 2, failureThreshold: 60 }
-          readinessProbe: { exec: { command: [pg_isready, -U, urumi] }, periodSeconds: 5 }
-          livenessProbe: { exec: { command: [pg_isready, -U, urumi] }, periodSeconds: 10, failureThreshold: 6 }
+          startupProbe: { exec: { command: [pg_isready, -U, storelink] }, periodSeconds: 2, failureThreshold: 60 }
+          readinessProbe: { exec: { command: [pg_isready, -U, storelink] }, periodSeconds: 5 }
+          livenessProbe: { exec: { command: [pg_isready, -U, storelink] }, periodSeconds: 10, failureThreshold: 6 }
           resources: {{ toYaml .Values.postgres.resources | nindent 12 }}
           volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
       volumes:
         - name: data
-          persistentVolumeClaim: { claimName: {{ include "urumi.name" . }}-postgres }
+          persistentVolumeClaim: { claimName: {{ include "storelink.name" . }}-postgres }
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "urumi.name" . }}-postgres
+  name: {{ include "storelink.name" . }}-postgres
 spec:
-  selector: { urumi/component: postgres, app.kubernetes.io/instance: {{ .Release.Name }} }
+  selector: { storelink/component: postgres, app.kubernetes.io/instance: {{ .Release.Name }} }
   ports: [{ port: 5432, targetPort: postgres }]
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "urumi.name" . }}-mariadb
+  name: {{ include "storelink.name" . }}-mariadb
 spec:
   replicas: 1
   strategy: { type: Recreate }
   selector:
-    matchLabels: { urumi/component: mariadb, app.kubernetes.io/instance: {{ .Release.Name }} }
+    matchLabels: { storelink/component: mariadb, app.kubernetes.io/instance: {{ .Release.Name }} }
   template:
     metadata:
-      labels: { urumi/component: mariadb, app.kubernetes.io/instance: {{ .Release.Name }} }
+      labels: { storelink/component: mariadb, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
       automountServiceAccountToken: false
       containers:
@@ -74,12 +74,12 @@ spec:
           volumeMounts: [{ name: data, mountPath: /var/lib/mysql }]
       volumes:
         - name: data
-          persistentVolumeClaim: { claimName: {{ include "urumi.name" . }}-mariadb }
+          persistentVolumeClaim: { claimName: {{ include "storelink.name" . }}-mariadb }
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "urumi.name" . }}-mariadb
+  name: {{ include "storelink.name" . }}-mariadb
 spec:
-  selector: { urumi/component: mariadb, app.kubernetes.io/instance: {{ .Release.Name }} }
+  selector: { storelink/component: mariadb, app.kubernetes.io/instance: {{ .Release.Name }} }
   ports: [{ port: 3306, targetPort: mysql }]

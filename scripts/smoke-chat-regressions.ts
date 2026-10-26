@@ -6,7 +6,7 @@ import { acquireClusterLock } from './lib/cluster-lock.ts';
 acquireClusterLock();
 console.log(`Chat regression started at ${new Date().toISOString()}`);
 const origin =
-  process.env.URUMI_DASHBOARD_URL ?? 'http://dashboard.urumi.localhost';
+  process.env.STORELINK_DASHBOARD_URL ?? 'http://dashboard.storelink.localhost';
 const secrets = JSON.parse(readFileSync('.data/cluster-secrets.json', 'utf8'));
 const password = Buffer.from(
   secrets['dashboard-admin-password'],
@@ -34,8 +34,8 @@ async function login(email: string, password: string) {
       signal: AbortSignal.timeout(130000),
     });
 }
-const admin = await login('admin@urumi.local', password);
-const email = `invite-${Date.now()}@urumi.invalid`;
+const admin = await login('admin@storelink.local', password);
+const email = `invite-${Date.now()}@storelink.test`;
 const invited = await admin('/invitations', { email });
 assert.equal(invited.status, 201);
 const invite = await invited.json();

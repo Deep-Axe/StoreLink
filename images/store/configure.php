@@ -26,28 +26,39 @@ if (!$free) {
     $instance = $zone->add_shipping_method('free_shipping');
     update_option("woocommerce_free_shipping_{$instance}_settings", ['enabled' => 'yes', 'title' => 'Free demo shipping', 'requires' => '']);
 }
-$integration = get_user_by('login', 'urumi-integration');
-if (!$integration) {
-    $user_id = wp_insert_user(['user_login' => 'urumi-integration', 'user_pass' => wp_generate_password(48), 'role' => 'shop_manager']);
-    if (is_wp_error($user_id)) throw new Exception('Cannot create integration user');
-} else { $user_id = $integration->ID; }
 global $wpdb;
+$integration_login = 'mcp-integration';
+$key_description = 'StoreLink MCP adapter';
 $consumer_key = getenv('WOO_CONSUMER_KEY');
 $consumer_secret = getenv('WOO_CONSUMER_SECRET');
 if (!$consumer_key || !$consumer_secret) throw new Exception('Missing store REST credentials');
 $hash = wc_api_hash($consumer_key);
 $table = $wpdb->prefix . 'woocommerce_api_keys';
-if (!$wpdb->get_var($wpdb->prepare("SELECT key_id FROM $table WHERE consumer_key = %s", $hash))) {
-    $wpdb->insert($table, ['user_id' => $user_id, 'description' => 'Urumi internal MCP adapter', 'permissions' => 'read_write', 'consumer_key' => $hash, 'consumer_secret' => $consumer_secret, 'truncated_key' => substr($consumer_key, -7)]);
+$existing = $wpdb->get_row($wpdb->prepare("SELECT key_id, user_id FROM $table WHERE consumer_key = %s", $hash));
+if ($existing) {
+    // Keep the key's owner and description current without issuing a new key.
+    $owner = get_user_by('id', $existing->user_id);
+    if ($owner && $owner->user_login !== $integration_login && !get_user_by('login', $integration_login)) {
+        $wpdb->update($wpdb->users, ['user_login' => $integration_login, 'user_nicename' => $integration_login, 'display_name' => $integration_login], ['ID' => $owner->ID]);
+        clean_user_cache($owner->ID);
+    }
+    $wpdb->update($table, ['description' => $key_description], ['key_id' => $existing->key_id]);
+} else {
+    $integration = get_user_by('login', $integration_login);
+    if (!$integration) {
+        $user_id = wp_insert_user(['user_login' => $integration_login, 'user_pass' => wp_generate_password(48), 'role' => 'shop_manager']);
+        if (is_wp_error($user_id)) throw new Exception('Cannot create integration user');
+    } else { $user_id = $integration->ID; }
+    $wpdb->insert($table, ['user_id' => $user_id, 'description' => $key_description, 'permissions' => 'read_write', 'consumer_key' => $hash, 'consumer_secret' => $consumer_secret, 'truncated_key' => substr($consumer_key, -7)]);
 }
-if (!get_page_by_path('urumi-demo-mug', OBJECT, 'product')) {
+if (!get_page_by_path('storelink-demo-mug', OBJECT, 'product')) {
     $product = new WC_Product_Simple();
-    $product->set_name('Urumi Demo Mug');
-    $product->set_slug('urumi-demo-mug');
+    $product->set_name('StoreLink Demo Mug');
+    $product->set_slug('storelink-demo-mug');
     $product->set_regular_price('199.00');
     $product->set_status('publish');
     $product->set_description('A demo product for testing checkout and MCP tools.');
     $product->save();
 }
 flush_rewrite_rules();
-update_option('urumi_bootstrap_complete', true);
+update_option('storelink_bootstrap_complete', true);

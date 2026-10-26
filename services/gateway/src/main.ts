@@ -55,7 +55,7 @@ if (store instanceof PostgresStore) {
   ];
   const credentials = process.env.UPSTREAM_SECRET_NAME
     ? new KubernetesCredentials(
-        process.env.POD_NAMESPACE ?? 'urumi',
+        process.env.POD_NAMESPACE ?? 'storelink',
         process.env.UPSTREAM_SECRET_NAME,
       )
     : new FileCredentials();

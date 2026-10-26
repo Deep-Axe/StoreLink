@@ -1,8 +1,8 @@
-# Replace registry/domain values and supply urumi-credentials and urumi-tls.
+# Replace registry/domain values and supply storelink-credentials and storelink-tls.
 teamId: production
 images:
-  app: registry.example.com/urumi/app:0.1.0
-  store: registry.example.com/urumi/wordpress:0.1.0
+  app: registry.example.com/storelink/app:0.1.0
+  store: registry.example.com/storelink/wordpress:0.1.0
 store:
   host: store.example.com
   publicUrl: https://store.example.com
@@ -17,4 +17,4 @@ storage:
 ingress:
   tls:
     enabled: true
-    secretName: urumi-tls
+    secretName: storelink-tls

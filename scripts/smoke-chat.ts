@@ -19,7 +19,7 @@ if (!process.env.OPENAI_API_KEY)
     'Load OPENAI_API_KEY from the ignored .env before running the live chat check',
   );
 const origin =
-  process.env.URUMI_DASHBOARD_URL ?? 'http://dashboard.urumi.localhost';
+  process.env.STORELINK_DASHBOARD_URL ?? 'http://dashboard.storelink.localhost';
 const material = JSON.parse(
   readFileSync('.data/cluster-secrets.json', 'utf8'),
 ) as Record<string, string>;
@@ -142,8 +142,8 @@ async function externalPrompt(message: string): Promise<Omit<Answer, 'id'>> {
     {
       env: {
         ...process.env,
-        URUMI_GATEWAY_URL: `${origin}/mcp`,
-        URUMI_GATEWAY_KEY_FILE: keyFile,
+        STORELINK_GATEWAY_URL: `${origin}/mcp`,
+        STORELINK_GATEWAY_KEY_FILE: keyFile,
       },
       timeout: 150000,
       maxBuffer: 1024 * 1024,
@@ -163,7 +163,7 @@ async function externalPrompt(message: string): Promise<Omit<Answer, 'id'>> {
 try {
   const page = await login(
     admin,
-    'admin@urumi.local',
+    'admin@storelink.local',
     secret('dashboard-admin-password'),
   );
   const config = await api<{ chatConfigured: boolean; model: string }>(
@@ -275,7 +275,7 @@ try {
   );
   await login(
     member,
-    'member@urumi.local',
+    'member@storelink.local',
     secret('dashboard-member-password'),
   );
   await api(member, `/conversations/${created.id}`, undefined, 'GET', 404);

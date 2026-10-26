@@ -15,7 +15,7 @@ test('kubectl uses an override, an executable local install, or PATH in that ord
   chmodSync(local, 0o755);
   assert.equal(kubectlCommand({}, local), local);
   assert.equal(
-    kubectlCommand({ URUMI_KUBECTL: '/custom/kubectl' }, local),
+    kubectlCommand({ STORELINK_KUBECTL: '/custom/kubectl' }, local),
     '/custom/kubectl',
   );
 });

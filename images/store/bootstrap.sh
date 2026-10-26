@@ -8,9 +8,9 @@ for attempt in $(seq 1 120); do
   sleep 2
 done
 if ! wp core is-installed --quiet; then
-  wp core install --url="$STORE_PUBLIC_URL" --title='Urumi Demo Store' \
+  wp core install --url="$STORE_PUBLIC_URL" --title='StoreLink Demo Store' \
     --admin_user="$WORDPRESS_ADMIN_USER" --admin_password="$WORDPRESS_ADMIN_PASSWORD" \
-    --admin_email='admin@urumi.invalid' --skip-email --quiet
+    --admin_email='admin@storelink.test' --skip-email --quiet
 fi
 wp option update home "$STORE_PUBLIC_URL" --quiet
 wp option update siteurl "$STORE_PUBLIC_URL" --quiet
@@ -20,5 +20,5 @@ if ! wp plugin is-installed woocommerce || [[ $(wp plugin get woocommerce --fiel
 else
   wp plugin activate woocommerce --quiet
 fi
-wp eval-file /opt/urumi/configure.php --quiet
+wp eval-file /opt/storelink/configure.php --quiet
 echo 'Store bootstrap complete; existing products and orders were retained.'

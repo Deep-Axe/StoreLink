@@ -23,7 +23,7 @@ export function dayWindow(
   };
 }
 export function timeServer(timezone: string): McpServer {
-  const server = new McpServer({ name: 'urumi-time', version: '0.1.0' });
+  const server = new McpServer({ name: 'storelink-time', version: '0.1.0' });
   server.registerTool(
     'get_day_window',
     {

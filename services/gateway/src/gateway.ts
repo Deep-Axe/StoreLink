@@ -311,7 +311,7 @@ export class Gateway {
           };
         }
         outcome = result.isError
-          ? result._meta?.['urumi/outcome'] === 'uncertain' &&
+          ? result._meta?.['storelink/outcome'] === 'uncertain' &&
             route.tool.annotations?.readOnlyHint !== true
             ? 'uncertain'
             : 'failed'

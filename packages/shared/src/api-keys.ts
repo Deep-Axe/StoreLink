@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
 export function generateApiKey(): string {
-  return `urumi_${randomBytes(32).toString('base64url')}`;
+  return `storelink_${randomBytes(32).toString('base64url')}`;
 }
 
 export function hashApiKey(key: string, pepper: Uint8Array): string {

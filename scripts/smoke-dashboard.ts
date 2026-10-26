@@ -11,7 +11,7 @@ import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 acquireClusterLock();
 
 const origin =
-  process.env.URUMI_DASHBOARD_URL ?? 'http://dashboard.urumi.localhost';
+  process.env.STORELINK_DASHBOARD_URL ?? 'http://dashboard.storelink.localhost';
 const secret = JSON.parse(
   readFileSync('.data/cluster-secrets.json', 'utf8'),
 ) as Record<string, string>;
@@ -57,13 +57,16 @@ const adminContext = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
 });
 const memberContext = await browser.newContext();
-const external = new Client({ name: 'urumi-member-check', version: '0.1.0' });
+const external = new Client({
+  name: 'storelink-member-check',
+  version: '0.1.0',
+});
 let keyId: string | undefined;
 try {
   const adminPage = await adminContext.newPage();
   await login(
     adminPage,
-    'admin@urumi.local',
+    'admin@storelink.local',
     decoded('dashboard-admin-password'),
   );
   await adminPage.getByRole('button', { name: /Connections/ }).click();
@@ -94,7 +97,7 @@ try {
   const memberPage = await memberContext.newPage();
   await login(
     memberPage,
-    'member@urumi.local',
+    'member@storelink.local',
     decoded('dashboard-member-password'),
   );
   await api(memberContext, '/members', undefined, 'GET', 403);
@@ -232,7 +235,7 @@ try {
   try {
     const adminKey = JSON.parse(decoded('gateway-keys'))['admin-a'] as string;
     const adminClient = new Client({
-      name: 'urumi-registration-check',
+      name: 'storelink-registration-check',
       version: '0.1.0',
     });
     try {
@@ -287,7 +290,7 @@ try {
   console.log(
     'Administrator add/edit/remove and server-side credential replacement passed.',
   );
-  const email = `invite-${Date.now()}@urumi.invalid`,
+  const email = `invite-${Date.now()}@storelink.test`,
     password = randomBytes(24).toString('base64url');
   const invitation = await api<{ url: string }>(
     adminContext,

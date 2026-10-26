@@ -5,7 +5,7 @@ ARG WOOCOMMERCE_VERSION=11.2.1
 ARG WOOCOMMERCE_SHA256
 RUN test -n "$WOOCOMMERCE_SHA256" && curl -fsSL "https://downloads.wordpress.org/plugin/woocommerce.${WOOCOMMERCE_VERSION}.zip" -o /opt/woocommerce.zip \
     && echo "$WOOCOMMERCE_SHA256  /opt/woocommerce.zip" | sha256sum -c -
-COPY images/store/bootstrap.sh /opt/urumi/bootstrap.sh
-COPY images/store/configure.php /opt/urumi/configure.php
-RUN printf 'memory_limit=256M\nupload_max_filesize=16M\npost_max_size=16M\n' > /usr/local/etc/php/conf.d/urumi.ini \
+COPY images/store/bootstrap.sh /opt/storelink/bootstrap.sh
+COPY images/store/configure.php /opt/storelink/configure.php
+RUN printf 'memory_limit=256M\nupload_max_filesize=16M\npost_max_size=16M\n' > /usr/local/etc/php/conf.d/storelink.ini \
     && printf '<IfModule mpm_prefork_module>\nStartServers 1\nMinSpareServers 1\nMaxSpareServers 2\nMaxRequestWorkers 4\nMaxConnectionsPerChild 500\n</IfModule>\n' > /etc/apache2/mods-available/mpm_prefork.conf

@@ -1,7 +1,7 @@
-fullnameOverride: urumi
-secretName: urumi-credentials
+fullnameOverride: storelink
+secretName: storelink-credentials
 teamId: development
-upstreamSecretName: urumi-upstream-credentials
+upstreamSecretName: storelink-upstream-credentials
 chat:
   enabled: false
   model: gpt-6-luna
@@ -11,14 +11,14 @@ chat:
     perTeamConcurrent: 4
     globalConcurrent: 16
 images:
-  app: urumi-app:0.1.0-dev
-  store: urumi-wordpress:0.1.0-dev
+  app: storelink-app:0.1.0-dev
+  store: storelink-wordpress:0.1.0-dev
   postgres: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
   mariadb: mariadb:11.8@sha256:f16d7a344413e519dff518f27bdb221388f84b0d274c97c4fb5f2cb0dc1b34fa
   pullPolicy: IfNotPresent
 store:
-  host: store.urumi.localhost
-  publicUrl: http://store.urumi.localhost
+  host: store.storelink.localhost
+  publicUrl: http://store.storelink.localhost
   timezone: Asia/Kolkata
   woocommerceVersion: '11.2.1'
   resources:
@@ -26,8 +26,8 @@ store:
     limits: { cpu: '2', memory: 768Mi }
 gateway:
   extraUpstreamOrigins: []
-  host: dashboard.urumi.localhost
-  publicUrl: http://dashboard.urumi.localhost
+  host: dashboard.storelink.localhost
+  publicUrl: http://dashboard.storelink.localhost
   resources:
     requests: { cpu: 50m, memory: 96Mi }
     limits: { cpu: '1', memory: 256Mi }
@@ -56,6 +56,6 @@ ingress:
   className: traefik
   tls:
     enabled: false
-    secretName: urumi-tls
+    secretName: storelink-tls
 networkPolicies:
   enabled: true

@@ -4,16 +4,16 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "urumi.name" $ }}-{{ $destination }}
+  name: {{ include "storelink.name" $ }}-{{ $destination }}
 spec:
   podSelector:
-    matchLabels: { urumi/component: {{ $destination }}, app.kubernetes.io/instance: {{ $.Release.Name }} }
+    matchLabels: { storelink/component: {{ $destination }}, app.kubernetes.io/instance: {{ $.Release.Name }} }
   policyTypes: [Ingress]
   ingress:
     - from:
         {{- range $source := $sources }}
         - podSelector:
-            matchLabels: { urumi/component: {{ $source }}, app.kubernetes.io/instance: {{ $.Release.Name }} }
+            matchLabels: { storelink/component: {{ $source }}, app.kubernetes.io/instance: {{ $.Release.Name }} }
         {{- end }}
       ports:
         - protocol: TCP

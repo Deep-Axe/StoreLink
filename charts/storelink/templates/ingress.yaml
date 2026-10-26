@@ -3,7 +3,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "urumi.name" $ }}-{{ $component }}
+  name: {{ include "storelink.name" $ }}-{{ $component }}
 spec:
   ingressClassName: {{ $.Values.ingress.className }}
   {{- if $.Values.ingress.tls.enabled }}
@@ -19,7 +19,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "urumi.name" $ }}-{{ $component }}
+                name: {{ include "storelink.name" $ }}-{{ $component }}
                 port:
                   number: {{ ternary 3000 80 (eq $component "gateway") }}
 {{- end }}

@@ -24,10 +24,11 @@ try {
       `/secrets/dashboard-${role === 'admin' ? 'admin' : 'member'}-password`,
       'utf8',
     ).trim();
+    // Keep bootstrap logins current; set the password only on first bootstrap.
     await store.pool.query(
-      'UPDATE users SET email=$1,password_hash=$2 WHERE id=$3 AND password_hash IS NULL',
+      'UPDATE users SET email=$1,password_hash=coalesce(password_hash,$2) WHERE id=$3',
       [
-        role === 'admin' ? 'admin@urumi.local' : 'member@urumi.local',
+        role === 'admin' ? 'admin@storelink.local' : 'member@storelink.local',
         await hashPassword(password),
         id,
       ],

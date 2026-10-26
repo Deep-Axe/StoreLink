@@ -8,7 +8,7 @@ if (!process.argv.includes('--show')) {
 } else {
   const data = JSON.parse(
     readFileSync(
-      join(process.env.URUMI_STATE_DIR ?? '.data', 'cluster-secrets.json'),
+      join(process.env.STORELINK_STATE_DIR ?? '.data', 'cluster-secrets.json'),
       'utf8',
     ),
   ) as Record<string, string>;
@@ -19,11 +19,11 @@ if (!process.argv.includes('--show')) {
       {
         dashboard: [
           {
-            email: 'admin@urumi.local',
+            email: 'admin@storelink.local',
             password: get('dashboard-admin-password'),
           },
           {
-            email: 'member@urumi.local',
+            email: 'member@storelink.local',
             password: get('dashboard-member-password'),
           },
         ],

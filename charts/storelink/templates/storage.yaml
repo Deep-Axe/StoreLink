@@ -3,9 +3,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "urumi.name" $ }}-{{ $component }}
+  name: {{ include "storelink.name" $ }}-{{ $component }}
   labels:
-    {{- include "urumi.labels" $ | nindent 4 }}
+    {{- include "storelink.labels" $ | nindent 4 }}
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: {{ $.Values.storage.className | quote }}
