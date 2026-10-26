@@ -54,6 +54,12 @@ spec:
             - { name: HEALTH_INTERVAL_MS, value: {{ .Values.gateway.healthIntervalMs | quote }} }
             - { name: SHUTDOWN_DELAY_MS, value: {{ .Values.gateway.shutdownDelayMs | quote }} }
             - { name: MCP_REQUESTS_PER_MINUTE, value: {{ .Values.gateway.mcpRequestsPerMinute | quote }} }
+            - { name: STORES_ENABLED, value: {{ .Values.stores.enabled | quote }} }
+            - { name: STORES_HOST_SUFFIX, value: {{ .Values.stores.hostSuffix | quote }} }
+            - { name: STORES_SCHEME, value: {{ .Values.stores.scheme | quote }} }
+            - { name: STORES_MAX_PER_TEAM, value: {{ .Values.stores.maxPerTeam | quote }} }
+            - { name: STORES_MAX_PER_USER, value: {{ .Values.stores.maxPerUser | quote }} }
+            - { name: STORES_TIMEOUT_MS, value: {{ mul .Values.stores.provisionTimeoutSeconds 1000 | quote }} }
             {{- if .Values.gateway.metrics.enabled }}
             - { name: METRICS_PORT, value: {{ .Values.gateway.metrics.port | quote }} }
             {{- end }}

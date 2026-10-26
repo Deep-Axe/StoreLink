@@ -3,7 +3,7 @@
 {{- $instance := .Release.Name }}
 {{- $ports := dict "gateway" 3000 "time-mcp" 3002 "operations-mcp" 3003 "woo-mcp" 3001 "postgres" 5432 "mariadb" 3306 "wordpress" 8080 }}
 # Only the listed components can connect to the MCP servers, databases and WordPress.
-{{- range $destination, $sources := dict "time-mcp" (list "gateway") "operations-mcp" (list "gateway") "woo-mcp" (list "gateway") "postgres" (list "gateway") "mariadb" (list "wordpress" "store-bootstrap") "wordpress" (list "woo-mcp") }}
+{{- range $destination, $sources := dict "time-mcp" (list "gateway") "operations-mcp" (list "gateway") "woo-mcp" (list "gateway") "postgres" (list "gateway" "provisioner") "mariadb" (list "wordpress" "store-bootstrap") "wordpress" (list "woo-mcp") }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -124,8 +124,41 @@ spec:
             except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 127.0.0.0/8]
       ports: [{ protocol: TCP, port: 443 }]
     {{- end }}
+    {{- if .Values.stores.enabled }}
+    # MCP servers of provisioned stores.
+    - to:
+        - namespaceSelector:
+            matchLabels: { storelink/managed-store: "true" }
+          podSelector:
+            matchLabels: { storelink/component: woo-mcp }
+      ports: [{ protocol: TCP, port: 3001 }]
+    {{- end }}
     {{- with .Values.networkPolicies.gatewayEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+{{- if .Values.stores.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-provisioner
+spec:
+  podSelector:
+    matchLabels: { storelink/component: provisioner, app.kubernetes.io/instance: {{ $instance }} }
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { storelink/component: postgres, app.kubernetes.io/instance: {{ $instance }} }
+      ports: [{ protocol: TCP, port: 5432 }]
+    - to:
+        {{- range .Values.networkPolicies.kubernetesApi.cidrs }}
+        - ipBlock: { cidr: {{ . }} }
+        {{- end }}
+      ports:
+        {{- range .Values.networkPolicies.kubernetesApi.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+{{- end }}
 {{- end }}
 {{- end }}

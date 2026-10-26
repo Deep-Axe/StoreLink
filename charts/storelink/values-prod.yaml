@@ -6,6 +6,13 @@ images:
 store:
   host: store.example.com
   publicUrl: https://store.example.com
+stores:
+  hostSuffix: store.example.com
+  scheme: https
+  tlsSecretName: storefront-tls
+  # Install cert-manager and configure this ClusterIssuer before enabling stores.
+  tlsClusterIssuer: letsencrypt-prod
+  provisionTimeoutSeconds: 600
 gateway:
   host: dashboard.example.com
   publicUrl: https://dashboard.example.com

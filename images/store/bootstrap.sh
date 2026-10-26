@@ -8,7 +8,7 @@ for attempt in $(seq 1 120); do
   sleep 2
 done
 if ! wp core is-installed --quiet; then
-  wp core install --url="$STORE_PUBLIC_URL" --title='StoreLink Demo Store' \
+  wp core install --url="$STORE_PUBLIC_URL" --title="${STORE_TITLE:-StoreLink Demo Store}" \
     --admin_user="$WORDPRESS_ADMIN_USER" --admin_password="$WORDPRESS_ADMIN_PASSWORD" \
     --admin_email='admin@storelink.test' --skip-email --quiet
 fi

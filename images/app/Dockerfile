@@ -20,6 +20,8 @@ RUN npm ci --omit=dev --ignore-scripts --cache=/tmp/npm-cache && rm -rf /tmp/npm
 COPY --chown=node:node packages packages
 COPY --chown=node:node services services
 COPY --chown=node:node scripts/bootstrap-cluster.ts scripts/bootstrap-cluster.ts
+# The store provisioner mounts the same readiness probe into each store.
+COPY --chown=node:node charts/storelink/files/health.php charts/storelink/files/health.php
 COPY --from=dashboard-build --chown=node:node /app/apps/dashboard/dist apps/dashboard/dist
 USER node
 ENV NODE_ENV=production BIND_ADDRESS=0.0.0.0

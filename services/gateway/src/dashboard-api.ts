@@ -19,6 +19,9 @@ import type { Gateway } from './gateway.ts';
 import { runChat, ChatInputError, validateChatInput } from './chat.ts';
 import type { Model } from './chat.ts';
 import { summarizeCalls } from './metrics.ts';
+import { requestStore, StoreRequestError } from './store-requests.ts';
+import type { StoreRequestSettings } from './store-requests.ts';
+import { storeSlugPattern } from './store-manifests.ts';
 
 class HttpError extends Error {
   status: number;
@@ -53,9 +56,20 @@ type Options = {
   // Shared across replicas in the cluster; in memory for a single process.
   rateLimiter?: RateLimiter;
   chatAdmission?: Admission;
+  // Present when the store provisioner is deployed.
+  stores?: StoreRequestSettings;
 };
 export function dashboardApi(options: Options) {
   const { store, registry, gateway, pepper, origin } = options;
+  if (
+    options.stores &&
+    [
+      options.stores.maxPerTeam,
+      options.stores.maxPerUser,
+      options.stores.provisionTimeoutMs,
+    ].some((n) => !Number.isSafeInteger(n) || n < 1)
+  )
+    throw new Error('Store limits must be positive integers');
   const router = express.Router();
   const rateLimiter = options.rateLimiter ?? new MemoryRateLimiter();
   const chatAdmission =
@@ -188,6 +202,13 @@ export function dashboardApi(options: Options) {
       user: actor(res),
       csrf: res.locals.csrf,
       chatConfigured: Boolean(options.model),
+      storesConfigured: Boolean(options.stores),
+      storeLimits: options.stores
+        ? {
+            perUser: options.stores.maxPerUser,
+            perTeam: options.stores.maxPerTeam,
+          }
+        : undefined,
       model: options.modelName,
       gatewayUrl: `${origin}/mcp`,
     }),
@@ -388,6 +409,77 @@ export function dashboardApi(options: Options) {
     if (!result.rows[0]) throw new HttpError(404, 'Unknown conversation');
     res.json(result.rows[0]);
   });
+  // Stores are created and removed by the provisioner; the gateway only records
+  // requests and announces them.
+  function storesEnabled(_res: express.Response) {
+    if (!options.stores)
+      throw new HttpError(404, 'Store provisioning is not enabled');
+    return options.stores;
+  }
+  const announceStores = () =>
+    store.pool.query("SELECT pg_notify('storelink_stores', '')");
+  router.get('/stores', async (_req, res) => {
+    storesEnabled(res);
+    const { rows } = await store.pool.query(
+      `SELECT id,slug,display_name AS "displayName",public_url AS "publicUrl",
+        upstream_slug AS "upstreamSlug",status,failure_reason AS "failureReason",
+        created_at AS "createdAt",created_by AS "createdBy",attempt
+      FROM stores WHERE team_id=$1 AND ($2='admin' OR created_by=$3) ORDER BY created_at`,
+      [actor(res).teamId, actor(res).role, actor(res).userId],
+    );
+    res.json(rows);
+  });
+  router.post('/stores', async (req, res) => {
+    const settings = storesEnabled(res);
+    const input = z
+      .object({
+        slug: z
+          .string()
+          .regex(
+            storeSlugPattern,
+            'Use 1–12 lowercase letters, digits or hyphens, starting with a letter',
+          ),
+        displayName: z.string().trim().min(1).max(60),
+      })
+      .parse(req.body);
+    const id = await requestStore(store.pool, actor(res), input, settings);
+    res.status(201).json({ id });
+  });
+  router.post('/stores/:id/retry', async (req, res) => {
+    const settings = storesEnabled(res);
+    const updated = await store.pool.query(
+      `UPDATE stores SET status='Provisioning',attempt=attempt+1,failure_reason=NULL,updated_at=now(),
+        deadline_at=now()+$3*interval '1 millisecond'
+      WHERE id=$1 AND team_id=$2 AND status='Failed' AND ($4='admin' OR created_by=$5)`,
+      [
+        String(req.params.id),
+        actor(res).teamId,
+        settings.provisionTimeoutMs,
+        actor(res).role,
+        actor(res).userId,
+      ],
+    );
+    if (!updated.rowCount)
+      throw new HttpError(409, 'Only a failed store can be retried');
+    await announceStores();
+    res.json({ ok: true });
+  });
+  router.delete('/stores/:id', async (req, res) => {
+    storesEnabled(res);
+    const updated = await store.pool.query(
+      `UPDATE stores SET status='Deleting',failure_reason=NULL,updated_at=now()
+      WHERE id=$1 AND team_id=$2 AND ($3='admin' OR created_by=$4)`,
+      [
+        String(req.params.id),
+        actor(res).teamId,
+        actor(res).role,
+        actor(res).userId,
+      ],
+    );
+    if (!updated.rowCount) throw new HttpError(404, 'Unknown store');
+    await announceStores();
+    res.json({ ok: true });
+  });
   router.post('/chat', async (req, res) => {
     if (!options.model)
       throw new HttpError(
@@ -489,7 +581,7 @@ export function dashboardApi(options: Options) {
         res.status(400).json({ error: error.message });
       else if (error instanceof ChatBusyError)
         res.status(429).json({ error: error.message });
-      else if (error instanceof HttpError)
+      else if (error instanceof HttpError || error instanceof StoreRequestError)
         res.status(error.status).json({ error: error.message });
       else if (error instanceof z.ZodError)
         res.status(400).json({

@@ -13,6 +13,8 @@ export type StoreSettings = {
   hostSuffix: string;
   scheme: 'http' | 'https';
   tlsSecretName?: string;
+  tlsClusterIssuer?: string;
+  quota?: Record<string, string>;
   ingressClass: string;
   storageClass: string;
   storage: { wordpress: string; mariadb: string };
@@ -26,7 +28,10 @@ export type StoreSettings = {
 
 // Every name and address a store uses comes from here, so the Ingress host,
 // WordPress URLs, OAuth signing and the MCP origin always agree.
-export function storeNames(slug: string, settings: StoreSettings) {
+export function storeNames(
+  slug: string,
+  settings: Pick<StoreSettings, 'hostSuffix' | 'scheme'>,
+) {
   if (!storeSlugPattern.test(slug)) throw new Error('Invalid store slug');
   const namespace = `storelink-store-${slug}`;
   if (!storeNamespacePattern.test(namespace))
@@ -45,7 +50,11 @@ export function storeNames(slug: string, settings: StoreSettings) {
 
 // Generated once per store; the provisioner creates it only if it is missing,
 // since MariaDB and WooCommerce keep the first values they see.
-export function storeSecret(slug: string, settings: StoreSettings) {
+export function storeSecret(
+  slug: string,
+  settings: StoreSettings,
+  mcpToken?: string,
+) {
   const { namespace } = storeNames(slug, settings);
   const random = () => randomBytes(32).toString('base64url');
   return {
@@ -59,7 +68,7 @@ export function storeSecret(slug: string, settings: StoreSettings) {
       'wordpress-admin-password': random(),
       'woo-consumer-key': `ck_${randomBytes(20).toString('hex')}`,
       'woo-consumer-secret': `cs_${randomBytes(20).toString('hex')}`,
-      'woo-mcp-token': random(),
+      'woo-mcp-token': mcpToken ?? random(),
     },
   };
 }
@@ -90,7 +99,16 @@ const nonRoot = (id: number) => ({
   fsGroupChangePolicy: 'OnRootMismatch',
 });
 
-export function storeManifests(slug: string, settings: StoreSettings) {
+export function storeManifests(
+  slug: string,
+  settings: StoreSettings,
+  title = 'StoreLink Store',
+  attempt = 1,
+) {
+  if (!Number.isSafeInteger(attempt) || attempt < 1)
+    throw new Error('Invalid provisioning attempt');
+  if (settings.scheme === 'https' && !settings.tlsSecretName)
+    throw new Error('HTTPS stores need a TLS Secret name');
   const names = storeNames(slug, settings);
   const { namespace } = names;
   const meta = (name: string, component?: string) => ({
@@ -112,7 +130,11 @@ export function storeManifests(slug: string, settings: StoreSettings) {
       selector: selector(slug, component),
       template: {
         metadata: { labels: labels(slug, component) },
-        spec: { automountServiceAccountToken: false, ...podSpec },
+        spec: {
+          automountServiceAccountToken: false,
+          enableServiceLinks: false,
+          ...podSpec,
+        },
       },
     },
   });
@@ -185,6 +207,8 @@ export function storeManifests(slug: string, settings: StoreSettings) {
   const bootstrap = {
     restartPolicy: 'OnFailure',
     automountServiceAccountToken: false,
+    // Service variables such as WOO_MCP_PORT would override the app's own settings.
+    enableServiceLinks: false,
     securityContext: nonRoot(33),
     affinity: {
       podAffinity: {
@@ -204,6 +228,7 @@ export function storeManifests(slug: string, settings: StoreSettings) {
         command: ['bash', '/opt/storelink/bootstrap.sh'],
         env: [
           ...wordpressEnv,
+          { name: 'STORE_TITLE', value: title },
           { name: 'STORE_TIMEZONE', value: settings.timezone },
           { name: 'WOOCOMMERCE_VERSION', value: settings.woocommerceVersion },
           { name: 'WORDPRESS_ADMIN_USER', value: 'admin' },
@@ -231,11 +256,18 @@ export function storeManifests(slug: string, settings: StoreSettings) {
   const jobName = `store-bootstrap-${createHash('sha256')
     .update(JSON.stringify(bootstrap))
     .digest('hex')
-    .slice(0, 10)}`;
+    .slice(0, 10)}-${attempt}`;
   const ingress = {
     apiVersion: 'networking.k8s.io/v1',
     kind: 'Ingress',
-    metadata: meta('wordpress', 'wordpress'),
+    metadata: {
+      ...meta('wordpress', 'wordpress'),
+      ...(settings.tlsClusterIssuer && {
+        annotations: {
+          'cert-manager.io/cluster-issuer': settings.tlsClusterIssuer,
+        },
+      }),
+    },
     spec: {
       ingressClassName: settings.ingressClass,
       ...(settings.tlsSecretName && {
@@ -285,6 +317,7 @@ export function storeManifests(slug: string, settings: StoreSettings) {
             persistentvolumeclaims: '2',
             'requests.storage': '8Gi',
             services: '4',
+            ...settings.quota,
           },
         },
       },
@@ -304,6 +337,24 @@ export function storeManifests(slug: string, settings: StoreSettings) {
         },
       },
       policy('default-deny', undefined, { policyTypes: ['Ingress', 'Egress'] }),
+      // HTTP-01 solver pods are created by cert-manager, outside the store's
+      // application labels. Let Traefik reach only their challenge port.
+      ...(settings.tlsClusterIssuer
+        ? [
+            {
+              apiVersion: 'networking.k8s.io/v1',
+              kind: 'NetworkPolicy',
+              metadata: meta('acme-http01-solver'),
+              spec: {
+                podSelector: {
+                  matchLabels: { 'acme.cert-manager.io/http01-solver': 'true' },
+                },
+                policyTypes: ['Ingress'],
+                ingress: [{ from: [traefik], ports: tcp(8089) }],
+              },
+            },
+          ]
+        : []),
       policy('dns', undefined, {
         policyTypes: ['Egress'],
         egress: [
@@ -491,6 +542,7 @@ export function storeManifests(slug: string, settings: StoreSettings) {
             command: ['node', 'services/woocommerce-mcp/src/main.ts'],
             env: [
               { name: 'WOO_MCP_ORIGIN', value: names.mcpOrigin },
+              { name: 'WOO_MCP_PORT', value: '3001' },
               { name: 'STORE_PUBLIC_URL', value: names.publicUrl },
               { name: 'STORE_CONNECT_SERVICE', value: 'wordpress' },
               { name: 'WOO_MCP_TOKEN_FILE', value: '/secrets/woo-mcp-token' },

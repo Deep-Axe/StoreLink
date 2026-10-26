@@ -57,6 +57,35 @@ mariadb:
   resources:
     requests: { cpu: 50m, memory: 96Mi }
     limits: { cpu: '1', memory: 384Mi }
+# Additional stores created from the dashboard, each in its own namespace.
+stores:
+  enabled: true
+  # Storefronts are served at <slug>.<hostSuffix>; production needs wildcard DNS.
+  hostSuffix: store.storelink.localhost
+  scheme: http
+  # cert-manager creates a separate TLS Secret in each store namespace for HTTPS.
+  tlsSecretName: ''
+  tlsClusterIssuer: ''
+  maxPerTeam: 3
+  maxPerUser: 2
+  quota:
+    requests.storage: 8Gi
+  provisionTimeoutSeconds: 240
+  storage: { wordpress: 2Gi, mariadb: 1Gi }
+  resources:
+    wordpress:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: '1', memory: 768Mi }
+    mariadb:
+      requests: { cpu: 50m, memory: 96Mi }
+      limits: { cpu: '1', memory: 384Mi }
+    wooMcp:
+      requests: { cpu: 25m, memory: 64Mi }
+      limits: { cpu: '1', memory: 192Mi }
+  provisioner:
+    resources:
+      requests: { cpu: 25m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 192Mi }
 storage:
   className: local-path
   wordpress: 2Gi

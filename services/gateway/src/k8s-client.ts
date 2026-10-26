@@ -88,6 +88,7 @@ const resources: Record<string, { base: string; plural: string }> = {
     plural: 'networkpolicies',
   },
   Ingress: { base: '/apis/networking.k8s.io/v1', plural: 'ingresses' },
+  Certificate: { base: '/apis/cert-manager.io/v1', plural: 'certificates' },
   Deployment: { base: '/apis/apps/v1', plural: 'deployments' },
   Job: { base: '/apis/batch/v1', plural: 'jobs' },
 };
@@ -145,7 +146,8 @@ export class StoreCluster {
     return this.check(response, `Apply ${object.kind} ${object.metadata.name}`);
   }
   // Creates the object only if it does not exist; never overwrites it.
-  async create(object: KubeObject): Promise<void> {
+  // Returns false when it already existed.
+  async create(object: KubeObject): Promise<boolean> {
     const resource = resources[object.kind];
     const namespace = this.namespaceOf(object);
     const response = await this.client.request(
@@ -153,8 +155,9 @@ export class StoreCluster {
       `${resource.base}/namespaces/${namespace}/${resource.plural}`,
       object,
     );
-    if (response.status === 409) return;
+    if (response.status === 409) return false;
     this.check(response, `Create ${object.kind} ${object.metadata.name}`);
+    return true;
   }
   async get(object: KubeObject): Promise<unknown | undefined> {
     const response = await this.client.request('GET', this.path(object));

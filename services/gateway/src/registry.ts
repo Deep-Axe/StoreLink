@@ -29,6 +29,11 @@ type Row = {
 // pg returns TIMESTAMPTZ columns as Date objects.
 const iso = (value: string | Date | null) =>
   value ? new Date(value).toISOString() : undefined;
+// Servers created by the store provisioner are changed only through Stores.
+const storeOwned = () =>
+  new RegistryInputError(
+    'This server belongs to a store; manage it from Stores',
+  );
 export class Registry {
   store: PostgresStore;
   gateway: Gateway;
@@ -51,11 +56,12 @@ export class Registry {
     gateway: Gateway,
     secrets: CredentialStore,
     origins: string[],
+    managedStores = false,
   ) {
     this.store = store;
     this.gateway = gateway;
     this.secrets = secrets;
-    this.policy = new UpstreamPolicy(origins);
+    this.policy = new UpstreamPolicy(origins, undefined, managedStores);
   }
   validateUrl(value: string): string {
     return this.policy.validate(value).toString();
@@ -283,6 +289,7 @@ export class Registry {
     },
   ) {
     if (actor.role !== 'admin') throw new Error('Administrator required');
+    if (input.id?.startsWith('store-')) throw storeOwned();
     if (!/^[a-z][a-z0-9_-]{0,15}$/.test(input.slug))
       throw new RegistryInputError('Use a short lowercase server slug');
     const url = (await this.policy.check(input.url)).toString();
@@ -350,6 +357,7 @@ export class Registry {
   }
   private async deleteUnlocked(actor: Identity, id: string): Promise<void> {
     if (actor.role !== 'admin') throw new Error('Administrator required');
+    if (id.startsWith('store-')) throw storeOwned();
     const deleted = await this.store.pool.query(
       `WITH deleted AS (
         DELETE FROM upstream_servers WHERE id=$1 AND team_id=$2 RETURNING id,team_id,slug,credential_ref
