@@ -26,3 +26,9 @@ jobs:
           linux-amd64/helm lint charts/storelink -f charts/storelink/values-local.yaml
           linux-amd64/helm lint charts/storelink -f charts/storelink/values-prod.yaml
           linux-amd64/helm template storelink charts/storelink -f charts/storelink/values-prod.yaml > /dev/null
+
+          linux-amd64/helm template storelink charts/storelink --set stores.enabled=false > /dev/null
+          if linux-amd64/helm template storelink charts/storelink --set stores.scheme=https --set stores.tlsSecretName= --set stores.tlsClusterIssuer= > /dev/null 2>&1; then
+            echo 'HTTPS store configuration without certificate settings must fail' >&2
+            exit 1
+          fi
