@@ -243,6 +243,8 @@ export function dashboardApi(options: Options) {
       .default(24)
       .parse(req.query.hours);
     const { teamId } = actor(res);
+    // Include servers added or removed through another replica.
+    await registry.ensureCurrent();
     const stats = await store.callStats({
       teamId,
       since: new Date(Date.now() - hours * 60 * 60 * 1000),
