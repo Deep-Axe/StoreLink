@@ -125,6 +125,7 @@ export function gatewayHttpHandler(
           outcome: 'denied',
           reason: 'session_owner_mismatch',
           durationMs: 0,
+          serverId: gateway.namespaceOwner(actor.teamId, requestedTool)?.id,
         });
       }
       return Response.json(

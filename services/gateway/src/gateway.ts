@@ -149,6 +149,9 @@ export class Gateway {
           outcome: 'denied',
           reason: record ? 'key_revoked' : 'unauthenticated',
           durationMs: 0,
+          serverId: record
+            ? this.namespaceOwner(record.teamId, requestedTool)?.id
+            : undefined,
         });
       }
       throw new AuthorizationError();
@@ -303,7 +306,7 @@ export class Gateway {
   }
 
   // Attributes denied calls to the server whose namespace was requested. Audit only, never routing.
-  private namespaceOwner(teamId: string, name: string): Upstream | undefined {
+  namespaceOwner(teamId: string, name: string): Upstream | undefined {
     let owner: Upstream | undefined;
     for (const upstream of this.upstreams.values())
       if (
