@@ -45,6 +45,8 @@ kubeconfig.*
 # Local assistant notes and original planning material
 /planning/
 /CLAUDE.md
+/docs/bugfix-verification.md
+/docs/project-plan.md
 
 # Conventional local credential stores and secret manifests
 .netrc

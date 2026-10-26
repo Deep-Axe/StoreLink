@@ -290,14 +290,18 @@ node --env-file=.env scripts/smoke-chat.ts  # live chat flow (uses the OpenAI AP
 
 The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` starts Vite with API requests proxied to the deployed gateway. Scripts that modify the cluster take a shared lock; wrap manual changes with `node scripts/with-cluster-lock.ts -- <command>`.
 
-## Additional features
+## Stand-out items
 
-- Owner-scoped chat conversations with token accounting
-- Single-use, expiring member invitations
-- CSRF protection and request throttling
-- Order results without customer contact details
-- Persisted connection status history
-- SSRF checks on upstream registration
+| Item                     | Status                                 |
+| ------------------------ | -------------------------------------- |
+| #1 VPS deployment        | Documented and templated, not deployed |
+| #6 Security hardening    | Partial                                |
+| #7 Scaling               | Partial: rate and concurrency limits   |
+| #8 Observability         | Partial: health and audit history      |
+| #9 Upgrades and rollback | Documented and rehearsed               |
+| #2–#5, multi-store bonus | Not attempted                          |
+
+[Verification](docs/verification.md#stand-out-items-and-additional-features) lists what each item covers and where it is implemented, along with additional features such as catalog change notifications, per-user conversations with token accounting, and single-use invitations.
 
 ## Documentation
 
