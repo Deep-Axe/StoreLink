@@ -42,7 +42,7 @@ Within a team, members share the store and upstream tool catalog:
 
 - **Shared capabilities:** Any member can create products, update order statuses, and consume team OpenAI quota (bounded by `chat.limits.perUserHour`, `perUserConcurrent`, `perTeamConcurrent`, and `globalConcurrent`).
 - **Enforced isolation:** Members cannot add, edit, disable or delete upstream servers (`403`), list or invite members (`403`), or revoke another user's API key. Conversations (`GET /api/conversations/:id`, `POST /api/chat`), personal audit logs (`GET /api/audit`), and active MCP session IDs (`mcp-session-id`) are scoped to the authenticated user; cross-user access returns `403` or `404`.
-- **Browser and session controls:** State-changing `/api/*` requests require a same-origin `Origin` header, a matching `Host` header, and a session-bound `x-csrf-token`. Login and invitation endpoints enforce per-IP and per-account rate limits.
+- **Browser and session controls:** State-changing `/api/*` requests require a same-origin `Origin` header, a matching `Host` header, and a session-bound `x-csrf-token`. Login and invitation endpoints enforce per-IP and per-account rate limits, dashboard API requests are limited per user, and `/mcp` requests per API key. The counters live in PostgreSQL, so they hold across gateway replicas and restarts.
 
 ## Cluster and storage boundaries
 

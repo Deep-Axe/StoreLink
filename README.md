@@ -6,7 +6,7 @@ StoreLink runs a WooCommerce store on Kubernetes and puts a team MCP gateway in 
 
 - **WooCommerce store:** WordPress, WooCommerce and MariaDB in the cluster, with persistent storage and cash-on-delivery checkout.
 - **WooCommerce MCP server:** list products, create product, list orders, get order and update order status, served over Streamable HTTP. Reachable only from the gateway.
-- **MCP gateway:** aggregates the tools of every enabled upstream behind one endpoint, namespaces tool names per server, and routes each call to its server. Every upstream call has a timeout.
+- **MCP gateway:** aggregates the tools of every enabled upstream behind one endpoint, namespaces tool names per server, and routes each call to its server. Every upstream call has a timeout. Runs as two replicas that share MCP sessions, rate limits and configuration changes through PostgreSQL.
 - **Dashboard:** server registration with live status (Connected, Unreachable, Disabled) and the tools each server exposes. Also covers member invitations, API keys, and an audit log of every tool call.
 - **Chat agent:** an OpenAI Responses tool loop that calls tools through the gateway as the signed-in user and shows each tool call it makes.
 - **Access control:** admin and member roles, per-user API keys stored as HMAC digests, immediate revocation, and upstream credentials held server-side.
@@ -157,7 +157,7 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 
 Administrators see each server's calls, error rate and average and p95 latency for the last 24 hours on its **Connections** card. The same summary is available as JSON from `GET /api/metrics?hours=<1-168>`.
 
-The gateway serves Prometheus metrics on port `9464` at `/metrics`. The Ingress does not route it, so it is reachable inside the cluster only. With [default-deny network policies](#network-policies) on, a Prometheus server must also be listed in `networkPolicies.metricsFrom`. The pod carries `prometheus.io/scrape` annotations. To inspect it locally:
+Each gateway replica serves Prometheus metrics on port `9464` at `/metrics`. The Ingress does not route it, so it is reachable inside the cluster only. With [default-deny network policies](#network-policies) on, a Prometheus server must also be listed in `networkPolicies.metricsFrom`. The pod carries `prometheus.io/scrape` annotations. To inspect it locally:
 
 ```sh
 kubectl -n storelink port-forward svc/storelink-gateway 9464:9464
@@ -172,7 +172,7 @@ curl -s localhost:9464/metrics
 | `storelink_upstream_status`                         | gauge     | `team`, `server`, `slug`, `status`  |
 | `storelink_upstream_last_failure_timestamp_seconds` | gauge     | `team`, `server`, `slug`            |
 
-For example, the error rate per server over five minutes is `sum by (server) (rate(storelink_tool_calls_total{outcome=~"failed|timeout|uncertain"}[5m])) / sum by (server) (rate(storelink_tool_calls_total{outcome!="denied"}[5m]))`.
+Call counts and latency come from the shared audit log, so every replica reports the same totals; aggregate them with `max`, not `sum`. The `storelink_upstream_*` gauges are each replica's own view of the upstream. For example, the error rate per server over five minutes is `sum by (server) (max by (server, outcome) (rate(storelink_tool_calls_total{outcome=~"failed|timeout|uncertain"}[5m]))) / sum by (server) (max by (server, outcome) (rate(storelink_tool_calls_total{outcome!="denied"}[5m])))`.
 
 ## Configuration
 
@@ -186,6 +186,9 @@ Common chart values:
 | `chat.limits.perUserConcurrent` / `perTeamConcurrent` / `globalConcurrent` | `1` / `4` / `16`                                             | Concurrent chat turns                                                         |
 | `gateway.extraUpstreamOrigins`                                             | `[]`                                                         | Cluster-internal origins allowed as upstreams                                 |
 | `gateway.healthIntervalMs`                                                 | `1000`                                                       | Interval between upstream health probes                                       |
+| `gateway.replicas`                                                         | `2`                                                          | Gateway replicas                                                              |
+| `gateway.mcpRequestsPerMinute`                                             | `120`                                                        | MCP requests per API key per minute, across replicas                          |
+| `gateway.shutdownDelayMs`                                                  | `5000`                                                       | Time a stopping replica keeps serving while traffic moves away                |
 | `gateway.metrics.enabled`, `gateway.metrics.port`                          | `true`, `9464`                                               | Prometheus metrics listener inside the cluster                                |
 | `networkPolicies.enabled`                                                  | `true`                                                       | Only the listed components can reach the MCP servers, databases and WordPress |
 | `networkPolicies.defaultDeny`                                              | `false`                                                      | Deny all other traffic; see [Network policies](#network-policies)             |
@@ -348,6 +351,7 @@ node scripts/smoke-cluster.ts       # store tools and storefront checkout
 node scripts/smoke-dashboard.ts     # dashboard, invitations, keys and server management
 node scripts/smoke-failures.ts      # upstream outage, recovery and persistence
 node scripts/smoke-pod-delete.ts    # deleted upstream pod shows as Unreachable, then recovers
+node scripts/smoke-scaling.ts       # sessions, configuration changes and limits across two gateway pods
 node --env-file=.env scripts/smoke-chat.ts  # live chat flow (uses the OpenAI API)
 ```
 
@@ -359,7 +363,7 @@ The smoke tests drive Google Chrome through Playwright. `npm run dev:dashboard` 
 | ------------------------ | ---------------------------------------- |
 | #1 VPS deployment        | Documented and templated, not deployed   |
 | #6 Security hardening    | Implemented; default-deny off by default |
-| #7 Scaling               | Partial: rate and concurrency limits     |
+| #7 Scaling               | Implemented                              |
 | #8 Observability         | Implemented                              |
 | #9 Upgrades and rollback | Documented and rehearsed                 |
 | #2–#5, multi-store bonus | Not attempted                            |
