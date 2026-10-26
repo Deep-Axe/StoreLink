@@ -14,6 +14,7 @@ import { Registry } from './registry.ts';
 import { dashboardApi } from './dashboard-api.ts';
 import { openaiModel } from './chat.ts';
 import { renderPrometheus } from './metrics.ts';
+import { PostgresSessions } from './mcp-sessions.ts';
 
 const usePostgres = Boolean(
   process.env.DATABASE_URL || process.env.DATABASE_URL_FILE,
@@ -30,7 +31,12 @@ const pepper = apiKeyPepper();
 const gateway = new Gateway(store, pepper);
 const port = Number(process.env.GATEWAY_PORT ?? 3000);
 const origin = process.env.GATEWAY_ORIGIN ?? `http://127.0.0.1:${port}`;
-const mcpHandler = gatewayHttpHandler(gateway, origin);
+const mcpHandler = gatewayHttpHandler(gateway, origin, {
+  sessions:
+    store instanceof PostgresStore
+      ? new PostgresSessions(store.pool)
+      : undefined,
+});
 const app = expressMcpApp(mcpHandler, origin, () =>
   store instanceof PostgresStore ? store.health() : true,
 );
