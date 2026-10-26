@@ -2,31 +2,7 @@
 {{- $name := include "storelink.name" . }}
 {{- $instance := .Release.Name }}
 {{- $ports := dict "gateway" 3000 "time-mcp" 3002 "operations-mcp" 3003 "woo-mcp" 3001 "postgres" 5432 "mariadb" 3306 "wordpress" 8080 }}
-# Every pod in the namespace starts with no ingress and no egress.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ $name }}-default-deny
-spec:
-  podSelector: {}
-  policyTypes: [Ingress, Egress]
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ $name }}-dns
-spec:
-  podSelector: {}
-  policyTypes: [Egress]
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels: { kubernetes.io/metadata.name: kube-system }
-          podSelector:
-            matchLabels: { k8s-app: kube-dns }
-      ports:
-        - { protocol: UDP, port: 53 }
-        - { protocol: TCP, port: 53 }
+# Only the listed components can connect to the MCP servers, databases and WordPress.
 {{- range $destination, $sources := dict "time-mcp" (list "gateway") "operations-mcp" (list "gateway") "woo-mcp" (list "gateway") "postgres" (list "gateway") "mariadb" (list "wordpress" "store-bootstrap") "wordpress" (list "woo-mcp") }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -53,6 +29,33 @@ spec:
       ports: [{ protocol: TCP, port: 8080 }]
     {{- end }}
 {{- end }}
+{{- if .Values.networkPolicies.defaultDeny }}
+---
+# Every pod in the namespace starts with no ingress and no egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-dns
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
 {{- range $source, $destinations := dict "woo-mcp" (list "wordpress") "wordpress" (list "mariadb") "store-bootstrap" (list "mariadb") }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -124,4 +127,5 @@ spec:
     {{- with .Values.networkPolicies.gatewayEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+{{- end }}
 {{- end }}
