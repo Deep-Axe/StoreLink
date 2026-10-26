@@ -20,14 +20,15 @@ const settings = {
   maxPerTeam: 3,
   provisionTimeoutMs: 240000,
 };
-function fixture(existing: { team: string; owner: string }[]) {
+type Record = { team: string; owner: string; slug?: string; status?: string };
+function fixture(existing: Record[]) {
   const records = [...existing];
   let tail = Promise.resolve();
   let rollbacks = 0;
   const pool = {
     async connect() {
       let release: (() => void) | undefined;
-      let pending: { team: string; owner: string } | undefined;
+      let pending: Record | undefined;
       return {
         async query(sql: string, args: unknown[] = []) {
           if (sql === 'BEGIN') return { rows: [] };
@@ -39,6 +40,12 @@ function fixture(existing: { team: string; owner: string }[]) {
             await previous;
             return { rows: [] };
           }
+          if (sql === 'SELECT status FROM stores WHERE slug=$1')
+            return {
+              rows: records
+                .filter((r) => r.slug === args[0])
+                .map((r) => ({ status: r.status })),
+            };
           if (sql.includes('count(*) AS total')) {
             const team = records.filter((r) => r.team === args[0]);
             return {
@@ -53,7 +60,12 @@ function fixture(existing: { team: string; owner: string }[]) {
           if (sql.includes('SELECT 1 FROM upstream_servers'))
             return { rows: [], rowCount: 0 };
           if (sql.includes('INSERT INTO stores')) {
-            pending = { team: String(args[1]), owner: String(args[2]) };
+            pending = {
+              team: String(args[1]),
+              owner: String(args[2]),
+              slug: String(args[3]),
+              status: 'Provisioning',
+            };
             return { rows: [], rowCount: 1 };
           }
           if (sql.includes('pg_notify')) return { rows: [] };
@@ -120,4 +132,36 @@ test('store admission enforces per-user limits independently of another team and
   );
   assert.equal(f.records.length, 3);
   assert.equal(f.rollbacks(), 1);
+});
+
+test('a deleting address reports termination across teams and can be reused after removal', async () => {
+  for (const team of ['team', 'another-team']) {
+    const f = fixture([
+      { team, owner: 'other', slug: 'north', status: 'Deleting' },
+    ]);
+    await assert.rejects(
+      () =>
+        requestStore(
+          f.pool,
+          user,
+          { slug: 'north', displayName: 'North' },
+          { ...settings, maxPerTeam: 1 },
+        ),
+      (error) =>
+        error instanceof StoreRequestError &&
+        error.status === 409 &&
+        error.message ===
+          'That store address is still being removed; wait a moment and try again',
+    );
+    assert.equal(f.records.length, 1);
+    assert.equal(f.rollbacks(), 1);
+    f.records.length = 0;
+    await requestStore(
+      f.pool,
+      user,
+      { slug: 'north', displayName: 'North' },
+      { ...settings, maxPerTeam: 1 },
+    );
+    assert.equal(f.records.length, 1);
+  }
 });
