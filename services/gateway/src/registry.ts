@@ -25,6 +25,9 @@ type Row = {
   last_failure_at: string | null;
   last_error: string | null;
 };
+// pg returns TIMESTAMPTZ columns as Date objects.
+const iso = (value: string | Date | null) =>
+  value ? new Date(value).toISOString() : undefined;
 export class Registry {
   store: PostgresStore;
   gateway: Gateway;
@@ -108,6 +111,9 @@ export class Registry {
           teamId: row.team_id,
           slug: row.slug,
           client,
+          lastSuccessAt: iso(row.last_success_at),
+          lastFailureAt: iso(row.last_failure_at),
+          lastError: row.last_error ?? undefined,
         });
         if (!row.enabled) this.gateway.setEnabled(row.id, false);
         this.versions.set(row.id, row.revision);

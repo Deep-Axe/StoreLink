@@ -161,6 +161,9 @@ export class Gateway {
     teamId: string;
     slug: string;
     client: ToolClient;
+    lastSuccessAt?: string;
+    lastFailureAt?: string;
+    lastError?: string;
   }): void {
     if (!/^[a-z][a-z0-9_-]{0,15}$/.test(input.slug))
       throw new Error('Invalid server slug');
@@ -299,6 +302,19 @@ export class Gateway {
       }));
   }
 
+  // Attributes denied calls to the server whose namespace was requested. Audit only, never routing.
+  private namespaceOwner(teamId: string, name: string): Upstream | undefined {
+    let owner: Upstream | undefined;
+    for (const upstream of this.upstreams.values())
+      if (
+        upstream.teamId === teamId &&
+        name.startsWith(`${upstream.slug}__`) &&
+        upstream.slug.length > (owner?.slug.length ?? -1)
+      )
+        owner = upstream;
+    return owner;
+  }
+
   async call(
     actor: Identity,
     name: string,
@@ -405,7 +421,8 @@ export class Gateway {
         outcome,
         reason,
         durationMs: performance.now() - started,
-        serverId: route?.upstream.id,
+        serverId:
+          route?.upstream.id ?? this.namespaceOwner(actor.teamId, name)?.id,
         toolName: route?.tool.name,
       });
     }

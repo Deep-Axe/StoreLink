@@ -88,6 +88,21 @@ test('call statistics aggregate outcomes and latency per upstream from the audit
   assert.equal(store.callStats({ teamId: 'team' }).length, 3);
 });
 
+test('denied calls are attributed to the requested server namespace', async (t) => {
+  const { store, gateway, actor } = await setup();
+  t.after(() => store.close());
+  gateway.setEnabled('time', false);
+  await gateway.call(actor, 'time__get_status', {});
+  await gateway.call(actor, 'unknown__get_status', {});
+  store.revokeKey(actor.keyId!);
+  await assert.rejects(gateway.call(actor, 'ops__get_status', {}));
+
+  const stats = new Map(store.callStats().map((s) => [s.serverId, s]));
+  assert.equal(stats.get('time')?.denied, 1);
+  assert.equal(stats.get('ops')?.denied, 1);
+  assert.equal(stats.size, 2);
+});
+
 test('p95 is interpolated within the matching histogram bucket', () => {
   // 100 calls: 90 at <=5 ms, 10 between 50 and 100 ms.
   const buckets = latencyBucketsMs.map((bound) =>
