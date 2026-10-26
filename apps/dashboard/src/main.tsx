@@ -489,7 +489,10 @@ function Connections({ me, run }: { me: Me; run: Run }) {
                 </>
               )}
             </dl>
-            {me.user.role === 'admin' && (
+            {server.id.startsWith('store-') && (
+              <p className="muted">Managed in Stores</p>
+            )}
+            {me.user.role === 'admin' && !server.id.startsWith('store-') && (
               <div className="actions">
                 <button onClick={() => setEditing(server)}>Edit</button>
                 <button
