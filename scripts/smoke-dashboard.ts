@@ -7,6 +7,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { closeClient } from './lib/mcp-client.ts';
 
 acquireClusterLock();
 
@@ -282,7 +283,7 @@ try {
         ),
       );
     } finally {
-      await adminClient.close();
+      await closeClient(adminClient);
     }
   } finally {
     await api(adminContext, `/servers/${temporary.id}`, undefined, 'DELETE');
@@ -384,6 +385,6 @@ try {
       'POST',
       201,
     ).catch(() => {});
-  await external.close();
+  await closeClient(external);
   await browser.close();
 }

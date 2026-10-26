@@ -6,6 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { acquireClusterLock } from './lib/cluster-lock.ts';
 import { kubectlCommand } from './lib/kubectl.ts';
+import { closeClient } from './lib/mcp-client.ts';
 
 acquireClusterLock();
 console.log(`Pod-delete-only check started at ${new Date().toISOString()}`);
@@ -137,17 +138,18 @@ try {
     'deployment/storelink-operations-mcp',
     '--timeout=90s',
   );
+  // Each gateway replica probes upstreams itself, so wait until a call succeeds
+  // rather than trusting a catalog that another replica may have served.
   const until = Date.now() + 45000;
   while (
-    !(await client.listTools()).tools.some((t) => t.name === 'ops__get_status')
+    !(await client.listTools()).tools.some(
+      (t) => t.name === 'ops__get_status',
+    ) ||
+    (await client.callTool({ name: 'ops__get_status', arguments: {} })).isError
   ) {
     assert.ok(Date.now() < until, 'Catalog did not recover');
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  assert.equal(
-    (await client.callTool({ name: 'ops__get_status', arguments: {} })).isError,
-    undefined,
-  );
   const replacement = JSON.parse(
     await kube(
       'get',
@@ -173,7 +175,7 @@ try {
     'deployment/storelink-operations-mcp',
     '--timeout=90s',
   ).catch(() => {});
-  await client.close();
+  await closeClient(client);
   await fetch(origin + '/api/logout', {
     method: 'POST',
     headers: {

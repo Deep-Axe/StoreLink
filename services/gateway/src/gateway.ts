@@ -86,6 +86,9 @@ export class Gateway {
   upstreams = new Map<string, Upstream>();
   private nextRetryAt = new Map<string, number>();
   routes = new Map<string, Route>();
+  // Brings the registry up to date before each request, so a change made on
+  // another replica applies to the next request here.
+  beforeRequest?: () => Promise<void>;
   ajv = new Ajv({ strict: false, allErrors: false });
   private catalogListeners = new Set<(teamId: string) => void>();
   private catalogSnapshots = new Map<string, string>();
@@ -294,6 +297,7 @@ export class Gateway {
 
   async listTools(actor: Identity): Promise<Tool[]> {
     if (!(await this.store.isActive(actor))) throw new AuthorizationError();
+    await this.beforeRequest?.();
     return [...this.routes.entries()]
       .filter(
         ([, route]) =>
@@ -334,6 +338,9 @@ export class Gateway {
         reason = 'key_revoked';
         throw new AuthorizationError();
       }
+      reason = 'registry_unavailable';
+      await this.beforeRequest?.();
+      reason = undefined;
       route = this.routes.get(`${actor.teamId}:${name}`);
       if (!route || !route.upstream.enabled) {
         outcome = 'denied';

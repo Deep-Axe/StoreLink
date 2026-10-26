@@ -14,6 +14,8 @@ import { Registry } from './registry.ts';
 import { dashboardApi } from './dashboard-api.ts';
 import { openaiModel } from './chat.ts';
 import { renderPrometheus } from './metrics.ts';
+import { PostgresSessions } from './mcp-sessions.ts';
+import { PostgresChatAdmission, PostgresRateLimiter } from './rate-limits.ts';
 
 const usePostgres = Boolean(
   process.env.DATABASE_URL || process.env.DATABASE_URL_FILE,
@@ -30,11 +32,24 @@ const pepper = apiKeyPepper();
 const gateway = new Gateway(store, pepper);
 const port = Number(process.env.GATEWAY_PORT ?? 3000);
 const origin = process.env.GATEWAY_ORIGIN ?? `http://127.0.0.1:${port}`;
-const mcpHandler = gatewayHttpHandler(gateway, origin);
+const rateLimiter =
+  store instanceof PostgresStore
+    ? new PostgresRateLimiter(store.pool)
+    : undefined;
+const mcpHandler = gatewayHttpHandler(gateway, origin, {
+  sessions:
+    store instanceof PostgresStore
+      ? new PostgresSessions(store.pool)
+      : undefined,
+  rateLimiter,
+  requestsPerMinute: Number(process.env.MCP_REQUESTS_PER_MINUTE ?? 120),
+});
+let draining = false;
 const app = expressMcpApp(mcpHandler, origin, () =>
-  store instanceof PostgresStore ? store.health() : true,
+  draining ? false : store instanceof PostgresStore ? store.health() : true,
 );
 let registry: Registry | undefined;
+let stopListening: (() => Promise<void>) | undefined;
 let developmentClient: ReturnType<typeof upstreamClient> | undefined;
 if (store instanceof PostgresStore) {
   const teamId = process.env.TEAM_ID ?? 'development';
@@ -83,6 +98,15 @@ if (store instanceof PostgresStore) {
   );
   await registry.seed(teamId, defaults);
   await registry.sync();
+  const current = registry;
+  gateway.beforeRequest = () => current.ensureCurrent();
+  stopListening = registry.listen(secret('DATABASE_URL'));
+  const chatLimits = {
+    perUserHour: Number(process.env.CHAT_PER_USER_HOUR ?? 15),
+    perUserConcurrent: Number(process.env.CHAT_PER_USER_CONCURRENT ?? 1),
+    perTeamConcurrent: Number(process.env.CHAT_PER_TEAM_CONCURRENT ?? 4),
+    globalConcurrent: Number(process.env.CHAT_GLOBAL_CONCURRENT ?? 16),
+  };
   const model =
     process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_FILE
       ? openaiModel(secret('OPENAI_API_KEY'))
@@ -97,12 +121,9 @@ if (store instanceof PostgresStore) {
       origin,
       model,
       modelName: process.env.OPENAI_MODEL ?? 'gpt-6-luna',
-      chatLimits: {
-        perUserHour: Number(process.env.CHAT_PER_USER_HOUR ?? 15),
-        perUserConcurrent: Number(process.env.CHAT_PER_USER_CONCURRENT ?? 1),
-        perTeamConcurrent: Number(process.env.CHAT_PER_TEAM_CONCURRENT ?? 4),
-        globalConcurrent: Number(process.env.CHAT_GLOBAL_CONCURRENT ?? 16),
-      },
+      chatLimits,
+      rateLimiter,
+      chatAdmission: new PostgresChatAdmission(store.pool, chatLimits),
     }),
   );
   const dashboard = resolve('apps/dashboard/dist');
@@ -170,6 +191,7 @@ const refresh = setInterval(() => {
   refreshing = true;
   void (async () => {
     try {
+      await rateLimiter?.cleanup();
       await registry?.sync();
       await gateway.refreshAll();
       await registry?.recordHealth();
@@ -182,9 +204,6 @@ const refresh = setInterval(() => {
 }, 15000);
 refresh.unref();
 // Fast liveness probes catch short outages, such as a deleted pod being replaced.
-const recorded = new Map(
-  [...gateway.upstreams.values()].map((u) => [u.id, u.status]),
-);
 let checking = false;
 const health = setInterval(
   () => {
@@ -192,14 +211,11 @@ const health = setInterval(
     checking = true;
     void (async () => {
       try {
+        await registry?.ensureCurrent();
         await Promise.all(
           [...gateway.upstreams.keys()].map((id) => gateway.checkHealth(id)),
         );
-        const upstreams = [...gateway.upstreams.values()];
-        if (upstreams.some((u) => recorded.get(u.id) !== u.status)) {
-          await registry?.recordHealth();
-          for (const u of upstreams) recorded.set(u.id, u.status);
-        }
+        await registry?.recordHealth();
       } catch {
         console.error('Upstream health check failed');
       } finally {
@@ -212,11 +228,25 @@ const health = setInterval(
 health.unref();
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.once(signal, async () => {
+    // Report not ready and keep serving while the Service and Ingress stop
+    // routing here, then let in-flight requests finish before closing.
+    draining = true;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Number(process.env.SHUTDOWN_DELAY_MS ?? 0)),
+    );
     clearInterval(refresh);
     clearInterval(health);
-    server.close();
-    metricsServer?.close();
+    const closed = new Promise((resolve) => server.close(resolve));
+    server.closeIdleConnections();
+    // Event streams stay open indefinitely; their clients resume on another replica.
+    await Promise.race([
+      closed,
+      new Promise((resolve) => setTimeout(resolve, 10000)),
+    ]);
     await mcpHandler.close();
+    server.closeAllConnections();
+    metricsServer?.close();
+    await stopListening?.();
     await registry?.close();
     await developmentClient?.close();
     await store.close();

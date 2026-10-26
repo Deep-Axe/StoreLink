@@ -1,5 +1,7 @@
 import { ChatAdmission, ChatBusyError } from './chat-admission.ts';
 import type { ChatLimits } from './chat-admission.ts';
+import { MemoryRateLimiter } from './rate-limits.ts';
+import type { Admission, RateLimiter } from './rate-limits.ts';
 import express from 'express';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import * as argon2 from 'argon2';
@@ -48,12 +50,16 @@ type Options = {
   model?: Model;
   modelName: string;
   chatLimits?: Partial<ChatLimits>;
+  // Shared across replicas in the cluster; in memory for a single process.
+  rateLimiter?: RateLimiter;
+  chatAdmission?: Admission;
 };
 export function dashboardApi(options: Options) {
   const { store, registry, gateway, pepper, origin } = options;
   const router = express.Router();
-  const loginAttempts = new Map<string, { count: number; until: number }>();
-  const chatAdmission = new ChatAdmission(options.chatLimits);
+  const rateLimiter = options.rateLimiter ?? new MemoryRateLimiter();
+  const chatAdmission =
+    options.chatAdmission ?? new ChatAdmission(options.chatLimits);
   const digest = (kind: string, value: string) =>
     hashApiKey(`${kind}:${value}`, pepper);
   const cookieName =
@@ -73,20 +79,9 @@ export function dashboardApi(options: Options) {
   }
   const equal = (a: string, b: string) =>
     a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-  const limiter = (key: string, limit: number, ms: number) => {
-    const now = Date.now();
-    if (loginAttempts.size >= 10000)
-      for (const [entry, value] of loginAttempts)
-        if (value.until < now) loginAttempts.delete(entry);
-    const value = loginAttempts.get(key);
-    if (value && value.until > now) {
-      if (++value.count > limit)
-        throw new HttpError(429, 'Too many attempts; try again later');
-    } else {
-      if (loginAttempts.size >= 10000)
-        throw new HttpError(429, 'Try again later');
-      loginAttempts.set(key, { count: 1, until: now + ms });
-    }
+  const limiter = async (key: string, limit: number, ms: number) => {
+    if (!(await rateLimiter.hit(key, limit, ms)))
+      throw new HttpError(429, 'Too many attempts; try again later');
   };
   router.use((req, res, next) => {
     if (
@@ -102,11 +97,11 @@ export function dashboardApi(options: Options) {
   });
   router.use(express.json({ limit: '32kb' }));
   router.post('/login', async (req, res) => {
-    limiter(`login-ip:${req.ip}`, 100, 15 * 60 * 1000);
+    await limiter(`login-ip:${req.ip}`, 100, 15 * 60 * 1000);
     const input = z
       .object({ email, password: z.string().min(1).max(128) })
       .parse(req.body);
-    limiter(`login:${req.ip}:${input.email}`, 15, 15 * 60 * 1000);
+    await limiter(`login:${req.ip}:${input.email}`, 15, 15 * 60 * 1000);
     const result = await store.pool.query(
       'SELECT id,password_hash FROM users WHERE email=$1 AND disabled_at IS NULL',
       [input.email],
@@ -132,7 +127,7 @@ export function dashboardApi(options: Options) {
       .json({ csrf: digest('csrf', token) });
   });
   router.post('/accept-invite', async (req, res) => {
-    limiter(`invite:${req.ip}`, 10, 15 * 60 * 1000);
+    await limiter(`invite:${req.ip}`, 10, 15 * 60 * 1000);
     const input = z
       .object({ token: z.string().min(20).max(256), password })
       .parse(req.body);
@@ -185,7 +180,7 @@ export function dashboardApi(options: Options) {
       !equal(String(req.headers['x-csrf-token'] ?? ''), res.locals.csrf)
     )
       throw new HttpError(403, 'Refresh the page and try again');
-    limiter(`api:${result.rows[0].userId}`, 180, 60000);
+    await limiter(`api:${result.rows[0].userId}`, 180, 60000);
     next();
   });
   router.get('/me', (_req, res) =>
@@ -419,7 +414,7 @@ export function dashboardApi(options: Options) {
       messages = found.rows[0].messages;
     }
     validateChatInput(messages, input.message);
-    const release = chatAdmission.acquire(
+    const release = await chatAdmission.acquire(
       user.userId,
       user.teamId,
       input.conversationId,
@@ -474,7 +469,7 @@ export function dashboardApi(options: Options) {
         outputTokens: result.outputTokens,
       });
     } finally {
-      release();
+      await release();
     }
   });
   router.use(

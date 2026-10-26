@@ -7,6 +7,7 @@ import { kubectlCommand } from './lib/kubectl.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { closeClient } from './lib/mcp-client.ts';
 
 acquireClusterLock();
 
@@ -100,7 +101,7 @@ const transport = () =>
       }),
   });
 await until(async () => {
-  await client.close();
+  await closeClient(client);
   client = new Client({ name: 'storelink-failure-check', version: '0.1.0' });
   await client.connect(transport());
   return true;
@@ -156,12 +157,14 @@ try {
     'deployment/storelink-operations-mcp',
     '--timeout=90s',
   );
+  // Each gateway replica probes upstreams itself, so wait until a call succeeds
+  // rather than trusting a catalog that another replica may have served.
   await until(async () =>
     (await client.listTools()).tools.some(
       (tool) => tool.name === 'ops__get_status',
     ),
   );
-  assert.ok(!(await call('ops__get_status')).isError);
+  await until(async () => !(await call('ops__get_status')).isError);
   console.log('Upstream recovered and its namespaced tools returned.');
   time = (await api<Server[]>('/servers')).find(
     (server) => server.id === 'time',
@@ -180,7 +183,7 @@ try {
     return true;
   });
   await until(async () => {
-    await client.close();
+    await closeClient(client);
     client = new Client({ name: 'storelink-failure-check', version: '0.1.0' });
     await client.connect(transport());
     return true;
@@ -243,5 +246,5 @@ try {
       await api('/servers', { ...time!, enabled: true });
       return true;
     }).catch(() => {});
-  await client.close();
+  await closeClient(client);
 }

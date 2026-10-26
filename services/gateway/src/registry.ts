@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Client } from 'pg';
 import type { Identity } from '../../../packages/shared/src/api-keys.ts';
 import type { PostgresStore } from './postgres-store.ts';
 import type { Gateway } from './gateway.ts';
@@ -40,6 +41,10 @@ export class Registry {
     return result;
   }
   versions = new Map<string, number>();
+  // Revision of every row the last sync processed, including rows that failed to load.
+  seen = new Map<string, number>();
+  private recorded = new Map<string, string>();
+  private catchingUp?: Promise<void>;
   clients = new Map<string, ReturnType<typeof upstreamClient>>();
   constructor(
     store: PostgresStore,
@@ -90,6 +95,7 @@ export class Registry {
     const live = new Set(rows.map((row) => row.id));
     for (const id of this.versions.keys())
       if (!live.has(id)) await this.removeRuntime(id);
+    this.seen = new Map(rows.map((row) => [row.id, row.revision]));
     for (const row of rows) {
       if (this.versions.get(row.id) === row.revision) continue;
       await this.removeRuntime(row.id);
@@ -130,8 +136,75 @@ export class Registry {
     this.clients.delete(id);
     await client?.close();
   }
+  // A cheap revision check; syncs and rediscovers only the servers that changed.
+  async ensureCurrent(): Promise<void> {
+    // A catch-up records new revisions before rediscovery ends; wait for it.
+    if (this.catchingUp) await this.catchingUp.catch(() => {});
+    const { rows } = await this.store.pool.query<{
+      id: string;
+      revision: number;
+    }>('SELECT id,revision FROM upstream_servers');
+    if (
+      rows.length === this.seen.size &&
+      rows.every((row) => this.seen.get(row.id) === row.revision)
+    )
+      return;
+    this.catchingUp ??= this.locked(async () => {
+      const before = new Map(this.versions);
+      await this.syncUnlocked();
+      await Promise.all(
+        [...this.versions]
+          .filter(([id, revision]) => before.get(id) !== revision)
+          .map(([id]) => this.gateway.refresh(id)),
+      );
+    }).finally(() => {
+      this.catchingUp = undefined;
+    });
+    await this.catchingUp;
+  }
+  // Tells other replicas that the registry changed. They also check on every request.
+  private async announce(teamId: string): Promise<void> {
+    await this.store.pool
+      .query("SELECT pg_notify('storelink_registry', $1)", [teamId])
+      .catch(() => {});
+  }
+  // Applies changes from other replicas as soon as they are announced.
+  listen(connectionString: string): () => Promise<void> {
+    let client: Client | undefined;
+    let closed = false;
+    const connect = async () => {
+      if (closed) return;
+      const next = new Client({ connectionString });
+      next.on('notification', () => {
+        void this.ensureCurrent().catch(() => {});
+      });
+      next.on('error', () => {
+        console.error('Registry notification listener interrupted');
+        void next.end().catch(() => {});
+        if (client === next && !closed) setTimeout(() => void connect(), 2000);
+      });
+      try {
+        await next.connect();
+        await next.query('LISTEN storelink_registry');
+        client = next;
+        // Changes announced while disconnected are picked up here.
+        await this.ensureCurrent().catch(() => {});
+      } catch {
+        void next.end().catch(() => {});
+        setTimeout(() => void connect(), 2000);
+      }
+    };
+    void connect();
+    return async () => {
+      closed = true;
+      await client?.end().catch(() => {});
+    };
+  }
+  // Writes only changes in this replica's own view, so a replica that lags
+  // behind another cannot overwrite a newer status on every dashboard poll.
   async recordHealth(): Promise<void> {
     for (const runtime of this.gateway.upstreams.values()) {
+      if (this.recorded.get(runtime.id) === runtime.status) continue;
       await this.store.pool.query(
         `WITH previous AS (
         SELECT id,team_id,slug,last_status FROM upstream_servers WHERE id=$1 FOR UPDATE
@@ -146,9 +219,11 @@ export class Registry {
           runtime.lastError ?? null,
         ],
       );
+      this.recorded.set(runtime.id, runtime.status);
     }
   }
   async list(actor: Identity) {
+    await this.ensureCurrent();
     await this.recordHealth();
     const { rows } = await this.store.pool.query<Row>(
       'SELECT * FROM upstream_servers WHERE team_id=$1 ORDER BY slug',
@@ -267,6 +342,7 @@ export class Registry {
     await this.syncUnlocked();
     await this.gateway.refresh(id);
     await this.recordHealth();
+    await this.announce(actor.teamId);
     return id;
   }
   async delete(actor: Identity, id: string): Promise<void> {
@@ -284,6 +360,8 @@ export class Registry {
     );
     if (!deleted.rowCount) throw new RegistryInputError('Unknown server');
     await this.removeRuntime(id);
+    this.seen.delete(id);
+    await this.announce(actor.teamId);
     if (deleted.rows[0].credential_ref)
       await this.secrets.set(deleted.rows[0].credential_ref, null);
   }

@@ -25,8 +25,14 @@ store:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { cpu: '2', memory: 768Mi }
 gateway:
+  # Replicas share MCP sessions, rate limits and registry changes through PostgreSQL.
+  replicas: 2
   extraUpstreamOrigins: []
   healthIntervalMs: 1000
+  # On shutdown the gateway keeps serving this long while traffic moves to other replicas.
+  shutdownDelayMs: 5000
+  # MCP requests allowed per API key per minute, across all replicas.
+  mcpRequestsPerMinute: 120
   metrics:
     enabled: true
     port: 9464

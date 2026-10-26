@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: {{ include "storelink.name" . }}-gateway
 spec:
-  replicas: 1
+  replicas: {{ .Values.gateway.replicas }}
   selector:
     matchLabels: { storelink/component: gateway, app.kubernetes.io/instance: {{ .Release.Name }} }
   template:
@@ -52,6 +52,8 @@ spec:
             - { name: CHAT_PER_TEAM_CONCURRENT, value: {{ .Values.chat.limits.perTeamConcurrent | quote }} }
             - { name: CHAT_GLOBAL_CONCURRENT, value: {{ .Values.chat.limits.globalConcurrent | quote }} }
             - { name: HEALTH_INTERVAL_MS, value: {{ .Values.gateway.healthIntervalMs | quote }} }
+            - { name: SHUTDOWN_DELAY_MS, value: {{ .Values.gateway.shutdownDelayMs | quote }} }
+            - { name: MCP_REQUESTS_PER_MINUTE, value: {{ .Values.gateway.mcpRequestsPerMinute | quote }} }
             {{- if .Values.gateway.metrics.enabled }}
             - { name: METRICS_PORT, value: {{ .Values.gateway.metrics.port | quote }} }
             {{- end }}
@@ -67,7 +69,7 @@ spec:
             - { name: metrics, containerPort: {{ .Values.gateway.metrics.port }} }
             {{- end }}
           startupProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 2, failureThreshold: 60 }
-          readinessProbe: { httpGet: { path: /health/ready, port: http }, periodSeconds: 5, timeoutSeconds: 5 }
+          readinessProbe: { httpGet: { path: /health/ready, port: http }, periodSeconds: 2, timeoutSeconds: 5 }
           livenessProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 10 }
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
           resources: {{ toYaml .Values.gateway.resources | nindent 12 }}

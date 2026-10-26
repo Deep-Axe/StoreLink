@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { acquireClusterLock } from './lib/cluster-lock.ts';
+import { closeClient } from './lib/mcp-client.ts';
 
 acquireClusterLock();
 console.log(
@@ -147,6 +148,6 @@ try {
     enabled: operations.enabled,
   });
   if (keyId) await api('/keys/' + keyId, undefined, 'DELETE');
-  await client.close();
+  await closeClient(client);
   await api('/logout', {}, 'POST');
 }
