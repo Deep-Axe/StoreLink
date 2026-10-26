@@ -2,7 +2,7 @@
 
 ## Automated test suite
 
-`npm test` runs 66 deterministic unit and protocol tests across fifteen test files without making paid OpenAI calls:
+`npm test` runs 67 deterministic unit and protocol tests across fifteen test files without making paid OpenAI calls:
 
 - **`tests/gateway.test.ts`:** API key HMAC digest lookup, revoked-key attribution after restart, `<slug>__<alias>` tool collision routing (`time__get_status` vs `ops__get_status`), immediate route removal on disable, hung upstream timeout isolation, uncertain mutation auditing without retries, argument schema validation, cross-team route isolation, audit-failure fail-closed behavior, and full MCP SDK Streamable HTTP exchanges.
 - **`tests/mcp-notifications.test.ts`:** Stateful Streamable HTTP + GET SSE sessions, team-scoped `notifications/tools/list_changed` delivery, suppression of unchanged catalog refreshes, cross-user/cross-key session rejection (`403`), revoked-key notification cutoff, per-user/global session limits (`429`), `DELETE` cleanup, and idle session expiry (`404`).
@@ -29,11 +29,10 @@ All cluster scripts run against the local k3d deployment (`storelink` namespace)
 
 ## Multi-store bonus acceptance
 
-`node scripts/smoke-multistore.ts` passed locally on 2026-10-26. Two users created independent stores from the dashboard. The check reproduced a terminal bootstrap failure, retried through the UI with a new attempt, restarted the provisioner and confirmed that credentials survived unchanged. A real concurrent admission test accepted one request and rejected the other with 409 when one personal slot remained. Members could not delete/retry another user's store.
-
-The gateway discovered ten additional tools. Cross-store connections to WordPress and MariaDB were blocked while authorized calls worked. COD checkout created one order per store, totaling ₹149.00 and ₹249.00. One dashboard chat turn called the time server and both stores' order tools and compared the totals. Deleting one store removed its tools while the other stayed usable; final deletion removed both namespaces and all four PVs, returning the gateway to nine tools.
-
-Private evidence: `.data/multi-store-evidence.json` and `.cache/multi-store-*.png`. The test cleans up its stores/products/orders and preserves the chat and audit evidence. Deterministic tests in `tests/stores.test.ts` and `tests/store-requests.test.ts` cover manifests, namespace safety, attempt-based retries, token crash recovery, TLS readiness, quota admission and state transitions. The check also passed with the platform namespace’s optional default-deny mode enabled, after which its original setting was restored. The final run used 7,458 input / 278 output model tokens. Both runs used local HTTP; public DNS/certificate issuance and disaster restore are not claimed. See [operations](multi-store.md).
+- **`node scripts/smoke-multistore.ts`:** Creates stores through two users' dashboards, checks ownership, and admits exactly one concurrent request when one personal slot remains. Discovers ten additional tools, places a COD order in each store (₹149.00 and ₹249.00), and uses dashboard chat to compare today's totals through the time server and both stores' order tools. Deleting one store removes its tools while the other remains usable; final deletion removes both namespaces and all four PVs, returning the gateway to nine tools.
+- **Recovery and isolation:** Forces a terminal bootstrap failure, retries through the UI with a new attempt, restarts the provisioner, and checks that credentials remain unchanged. Blocks cross-store WordPress/MariaDB connections while authorized calls work. Covers platform default-deny mode both off and on, restoring the original setting afterward.
+- **Deterministic coverage:** `tests/stores.test.ts` and `tests/store-requests.test.ts` cover manifests, namespace safety, attempt-based retries, token crash recovery, TLS readiness, atomic admission, deletion-collision messages and state transitions.
+- **Evidence and scope:** `.data/multi-store-evidence.json` and `.cache/multi-store-*.png` contain private evidence. The script makes one paid, read-only model turn, cleans up its stores/products/orders, and preserves chat/audit evidence. Checks use local HTTP; public DNS/certificate issuance and disaster restore are outside this coverage. See [operations](multi-store.md).
 
 ## External MCP client verification
 
