@@ -53,6 +53,7 @@ spec:
             - { name: CHAT_GLOBAL_CONCURRENT, value: {{ .Values.chat.limits.globalConcurrent | quote }} }
             - { name: HEALTH_INTERVAL_MS, value: {{ .Values.gateway.healthIntervalMs | quote }} }
             - { name: SHUTDOWN_DELAY_MS, value: {{ .Values.gateway.shutdownDelayMs | quote }} }
+            - { name: MCP_REQUESTS_PER_MINUTE, value: {{ .Values.gateway.mcpRequestsPerMinute | quote }} }
             {{- if .Values.gateway.metrics.enabled }}
             - { name: METRICS_PORT, value: {{ .Values.gateway.metrics.port | quote }} }
             {{- end }}

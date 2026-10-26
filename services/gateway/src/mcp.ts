@@ -11,6 +11,8 @@ import type { Identity } from '../../../packages/shared/src/api-keys.ts';
 import type { Gateway } from './gateway.ts';
 import { AuthorizationError } from './gateway.ts';
 import { MemorySessions } from './mcp-sessions.ts';
+import { MemoryRateLimiter } from './rate-limits.ts';
+import type { RateLimiter } from './rate-limits.ts';
 import type { McpSessionRecord, McpSessionStore } from './mcp-sessions.ts';
 
 // Each replica keeps a local MCP server per session it has handled. The shared
@@ -31,6 +33,8 @@ export function gatewayHttpHandler(
     maxUserSessions?: number;
     now?: () => number;
     sessions?: McpSessionStore;
+    rateLimiter?: RateLimiter;
+    requestsPerMinute?: number;
   } = {},
 ) {
   const locals = new Map<string, Local>();
@@ -40,7 +44,13 @@ export function gatewayHttpHandler(
   const maximum = options.maxSessions ?? 256;
   const perUser = options.maxUserSessions ?? 8;
   const now = options.now ?? Date.now;
-  if ([ttl, maximum, perUser].some((n) => !Number.isSafeInteger(n) || n < 1))
+  const limiter = options.rateLimiter ?? new MemoryRateLimiter();
+  const perMinute = options.requestsPerMinute ?? 120;
+  if (
+    [ttl, maximum, perUser, perMinute].some(
+      (n) => !Number.isSafeInteger(n) || n < 1,
+    )
+  )
     throw new Error('Invalid MCP session limits');
   async function drop(id: string) {
     const local = locals.get(id);
@@ -197,6 +207,24 @@ export function gatewayHttpHandler(
               : 'Authorization service unavailable',
         },
         { status },
+      );
+    }
+    if (
+      request.method === 'POST' &&
+      !(await limiter.hit(`mcp-key:${actor.keyId}`, perMinute, 60000))
+    ) {
+      if (requestedTool !== undefined) {
+        const audit = await gateway.store.beginAudit(actor, requestedTool);
+        await gateway.store.finishAudit(audit, {
+          outcome: 'denied',
+          reason: 'rate_limited',
+          durationMs: 0,
+          serverId: gateway.namespaceOwner(actor.teamId, requestedTool)?.id,
+        });
+      }
+      return Response.json(
+        { error: 'Too many requests for this API key; slow down' },
+        { status: 429, headers: { 'retry-after': '60' } },
       );
     }
     const id = request.headers.get('mcp-session-id');

@@ -255,7 +255,6 @@ try {
     events.close();
   }
   assert.notEqual((await callOnB(11)).isError, true);
-  await send(a, 'POST', admin, {}, '/api/logout');
   console.log(
     'A server disabled on one pod was refused on the next call on the other, which also notified its open event stream; re-enabling restored it.',
   );
@@ -269,6 +268,66 @@ try {
   });
   assert.equal(after.status, 404, after.body);
   console.log('Session deleted on one pod is gone on the other.');
+
+  // The per-key limit counts requests on both pods. A temporary key keeps the
+  // shared demo key usable for other checks.
+  const issued = JSON.parse(
+    (
+      await send(
+        a,
+        'POST',
+        admin,
+        { userId: 'member-b', label: 'Scaling check' },
+        '/api/keys',
+      )
+    ).body,
+  );
+  try {
+    const limited = { authorization: `Bearer ${issued.key}` };
+    const statuses: number[] = [];
+    for (let i = 0; i < 121; i++)
+      statuses.push(
+        (
+          await send(i % 2 ? b : a, 'POST', limited, {
+            jsonrpc: '2.0',
+            id: i,
+            method: 'tools/list',
+          })
+        ).status,
+      );
+    assert.ok(statuses.slice(0, 120).every((status) => status !== 429));
+    assert.equal(statuses[120], 429);
+  } finally {
+    await send(a, 'DELETE', admin, undefined, `/api/keys/${issued.id}`);
+  }
+  console.log(
+    'The per-key limit allowed 120 requests split across both pods and refused the next.',
+  );
+
+  // Chat concurrency is held in PostgreSQL: a second turn for the same user on
+  // the other pod is refused while the first is running.
+  const turn = (port: number) =>
+    send(
+      port,
+      'POST',
+      admin,
+      { message: "Use the time tool to tell me today's date in one sentence." },
+      '/api/chat',
+    );
+  const first = turn(a);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const second = await turn(b);
+  const firstReply = await first;
+  if (firstReply.status === 503)
+    console.log('Chat is not configured; skipped the chat concurrency check.');
+  else {
+    assert.equal(firstReply.status, 200, firstReply.body);
+    assert.equal(second.status, 429, second.body);
+    console.log(
+      'A second chat turn for the same user on the other pod was refused while the first ran.',
+    );
+  }
+  await send(a, 'POST', admin, {}, '/api/logout');
 } finally {
   for (const child of forwards) child.kill();
 }

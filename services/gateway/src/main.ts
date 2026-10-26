@@ -15,6 +15,7 @@ import { dashboardApi } from './dashboard-api.ts';
 import { openaiModel } from './chat.ts';
 import { renderPrometheus } from './metrics.ts';
 import { PostgresSessions } from './mcp-sessions.ts';
+import { PostgresChatAdmission, PostgresRateLimiter } from './rate-limits.ts';
 
 const usePostgres = Boolean(
   process.env.DATABASE_URL || process.env.DATABASE_URL_FILE,
@@ -31,11 +32,17 @@ const pepper = apiKeyPepper();
 const gateway = new Gateway(store, pepper);
 const port = Number(process.env.GATEWAY_PORT ?? 3000);
 const origin = process.env.GATEWAY_ORIGIN ?? `http://127.0.0.1:${port}`;
+const rateLimiter =
+  store instanceof PostgresStore
+    ? new PostgresRateLimiter(store.pool)
+    : undefined;
 const mcpHandler = gatewayHttpHandler(gateway, origin, {
   sessions:
     store instanceof PostgresStore
       ? new PostgresSessions(store.pool)
       : undefined,
+  rateLimiter,
+  requestsPerMinute: Number(process.env.MCP_REQUESTS_PER_MINUTE ?? 120),
 });
 let draining = false;
 const app = expressMcpApp(mcpHandler, origin, () =>
@@ -94,6 +101,12 @@ if (store instanceof PostgresStore) {
   const current = registry;
   gateway.beforeRequest = () => current.ensureCurrent();
   stopListening = registry.listen(secret('DATABASE_URL'));
+  const chatLimits = {
+    perUserHour: Number(process.env.CHAT_PER_USER_HOUR ?? 15),
+    perUserConcurrent: Number(process.env.CHAT_PER_USER_CONCURRENT ?? 1),
+    perTeamConcurrent: Number(process.env.CHAT_PER_TEAM_CONCURRENT ?? 4),
+    globalConcurrent: Number(process.env.CHAT_GLOBAL_CONCURRENT ?? 16),
+  };
   const model =
     process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_FILE
       ? openaiModel(secret('OPENAI_API_KEY'))
@@ -108,12 +121,9 @@ if (store instanceof PostgresStore) {
       origin,
       model,
       modelName: process.env.OPENAI_MODEL ?? 'gpt-6-luna',
-      chatLimits: {
-        perUserHour: Number(process.env.CHAT_PER_USER_HOUR ?? 15),
-        perUserConcurrent: Number(process.env.CHAT_PER_USER_CONCURRENT ?? 1),
-        perTeamConcurrent: Number(process.env.CHAT_PER_TEAM_CONCURRENT ?? 4),
-        globalConcurrent: Number(process.env.CHAT_GLOBAL_CONCURRENT ?? 16),
-      },
+      chatLimits,
+      rateLimiter,
+      chatAdmission: new PostgresChatAdmission(store.pool, chatLimits),
     }),
   );
   const dashboard = resolve('apps/dashboard/dist');
@@ -181,6 +191,7 @@ const refresh = setInterval(() => {
   refreshing = true;
   void (async () => {
     try {
+      await rateLimiter?.cleanup();
       await registry?.sync();
       await gateway.refreshAll();
       await registry?.recordHealth();

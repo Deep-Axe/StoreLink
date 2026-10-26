@@ -12,7 +12,8 @@ export const defaultChatLimits: ChatLimits = {
 };
 export class ChatBusyError extends Error {}
 
-// Process-local: the supported deployment runs one gateway replica.
+// Process-local admission for a single gateway process and tests; the cluster
+// uses PostgresChatAdmission so limits hold across replicas.
 export class ChatAdmission {
   private hourly = new Map<string, { count: number; until: number }>();
   private users = new Map<string, number>();

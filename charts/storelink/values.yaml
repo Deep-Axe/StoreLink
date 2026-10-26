@@ -31,6 +31,8 @@ gateway:
   healthIntervalMs: 1000
   # On shutdown the gateway keeps serving this long while traffic moves to other replicas.
   shutdownDelayMs: 5000
+  # MCP requests allowed per API key per minute, across all replicas.
+  mcpRequestsPerMinute: 120
   metrics:
     enabled: true
     port: 9464

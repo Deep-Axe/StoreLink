@@ -10,6 +10,7 @@ import { DevelopmentStore } from '../services/gateway/src/store.ts';
 import { Gateway } from '../services/gateway/src/gateway.ts';
 import { gatewayHttpHandler } from '../services/gateway/src/mcp.ts';
 import { MemorySessions } from '../services/gateway/src/mcp-sessions.ts';
+import { MemoryRateLimiter } from '../services/gateway/src/rate-limits.ts';
 import { expressMcpApp } from '../packages/shared/src/mcp-http.ts';
 import { generateApiKey, hashApiKey } from '../packages/shared/src/api-keys.ts';
 
@@ -17,10 +18,11 @@ import { generateApiKey, hashApiKey } from '../packages/shared/src/api-keys.ts';
 // The router alternates between them, as a load balancer may.
 async function setup(
   t: { after: (fn: () => unknown) => void },
-  options: { maxUserSessions?: number } = {},
+  options: { maxUserSessions?: number; requestsPerMinute?: number } = {},
 ) {
   const store = new DevelopmentStore(':memory:');
   const sessions = new MemorySessions();
+  const rateLimiter = new MemoryRateLimiter();
   const pepper = randomBytes(32);
   const key = generateApiKey();
   store.addUser('alice', 'team', 'member');
@@ -52,6 +54,7 @@ async function setup(
       await gateway.refreshAll();
       const handler = gatewayHttpHandler(gateway, origin, {
         sessions,
+        rateLimiter,
         ...options,
       });
       return { name, gateway, handler, app: expressMcpApp(handler, origin) };
@@ -82,7 +85,7 @@ async function setup(
     clients.push(client);
     return { client, transport };
   }
-  return { replicas, served, connect, origin, key };
+  return { replicas, served, connect, origin, key, store };
 }
 
 const text = (result: unknown) =>
@@ -184,4 +187,25 @@ test('a replica notifies a stream whose handshake finished on the other replica'
     assert.ok(Date.now() < end, 'No catalog notification');
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
+});
+
+test('the per-key request limit is shared by both replicas', async (t) => {
+  // initialize and notifications/initialized use two of the five requests.
+  const f = await setup(t, { requestsPerMinute: 5 });
+  const { client } = await f.connect();
+  for (let i = 0; i < 3; i++)
+    assert.equal(
+      text(await client.callTool({ name: 'time__status', arguments: {} }))
+        .length,
+      3,
+    );
+  await assert.rejects(
+    () => client.callTool({ name: 'time__status', arguments: {} }),
+    /Too many requests/,
+  );
+  assert.ok(f.served.filter((r) => r.startsWith('POST one')).length >= 2);
+  assert.ok(f.served.filter((r) => r.startsWith('POST two')).length >= 2);
+  const denied = f.store.auditRows().at(-1)!;
+  assert.equal(denied.reason, 'rate_limited');
+  assert.equal(denied.server_id, 'time');
 });
