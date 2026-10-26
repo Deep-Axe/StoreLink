@@ -70,6 +70,7 @@ if (store instanceof PostgresStore) {
       url: process.env.OPERATIONS_MCP_URL ?? 'http://127.0.0.1:3003/mcp',
     },
   ];
+  const storesEnabled = process.env.STORES_ENABLED === 'true';
   const credentials = process.env.UPSTREAM_SECRET_NAME
     ? new KubernetesCredentials(
         process.env.POD_NAMESPACE ?? 'storelink',
@@ -95,6 +96,7 @@ if (store instanceof PostgresStore) {
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean),
+    storesEnabled,
   );
   await registry.seed(teamId, defaults);
   await registry.sync();
@@ -124,6 +126,16 @@ if (store instanceof PostgresStore) {
       chatLimits,
       rateLimiter,
       chatAdmission: new PostgresChatAdmission(store.pool, chatLimits),
+      stores: storesEnabled
+        ? {
+            hostSuffix:
+              process.env.STORES_HOST_SUFFIX ?? 'store.storelink.localhost',
+            scheme: process.env.STORES_SCHEME === 'https' ? 'https' : 'http',
+            maxPerTeam: Number(process.env.STORES_MAX_PER_TEAM ?? 3),
+            maxPerUser: Number(process.env.STORES_MAX_PER_USER ?? 2),
+            provisionTimeoutMs: Number(process.env.STORES_TIMEOUT_MS ?? 240000),
+          }
+        : undefined,
     }),
   );
   const dashboard = resolve('apps/dashboard/dist');

@@ -1,0 +1,163 @@
+{{- if .Values.stores.enabled }}
+{{- if and (eq .Values.stores.scheme "https") (or (empty .Values.stores.tlsSecretName) (empty .Values.stores.tlsClusterIssuer)) }}
+{{- fail "HTTPS stores require stores.tlsSecretName and stores.tlsClusterIssuer (cert-manager)" }}
+{{- end }}
+{{- $name := include "storelink.name" . }}
+{{- $account := printf "system:serviceaccount:%s:%s-provisioner" .Release.Namespace $name }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-provisioner
+---
+# Creating stores needs rights in namespaces that do not exist yet, which RBAC can
+# only grant cluster-wide. The admission policy below limits them to store namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-store-provisioner-{{ .Release.Namespace }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [""]
+    resources: [resourcequotas, limitranges, configmaps, persistentvolumeclaims, services]
+    verbs: [get, create, patch]
+  # Store Secrets are created once and never read back.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies, ingresses]
+    verbs: [get, create, patch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, create, patch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, create, patch]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-store-provisioner-{{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-provisioner
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $name }}-store-provisioner-{{ .Release.Namespace }}
+  apiGroup: rbac.authorization.k8s.io
+---
+# Registers each store's MCP credential in the gateway's credentials Secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-provisioner-credentials
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-provisioner
+roleRef:
+  kind: Role
+  name: {{ $name }}-credentials
+  apiGroup: rbac.authorization.k8s.io
+---
+# Enforced by the API server: the provisioner may change only namespaces labelled
+# as managed stores and the objects inside them, plus the credentials Secret.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}-store-provisioner-{{ .Release.Namespace }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["", apps, batch, networking.k8s.io, rbac.authorization.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: ["*"]
+  matchConditions:
+    - name: provisioner
+      expression: request.userInfo.username == {{ $account | quote }}
+  validations:
+    - message: The store provisioner may only change managed store namespaces
+      expression: >-
+        (request.kind.kind == 'Secret' && request.operation == 'UPDATE'
+          && request.namespace == {{ .Release.Namespace | quote }}
+          && request.name == {{ .Values.upstreamSecretName | quote }})
+        || (request.kind.kind == 'Namespace' && request.name.startsWith('storelink-store-')
+          && (request.operation == 'DELETE' ? oldObject : object).metadata.?labels[?'storelink/managed-store'].orValue('') == 'true')
+        || (request.kind.kind != 'Namespace' && request.namespace.startsWith('storelink-store-')
+          && namespaceObject != null
+          && namespaceObject.metadata.?labels[?'storelink/managed-store'].orValue('') == 'true')
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}-store-provisioner-{{ .Release.Namespace }}
+spec:
+  policyName: {{ $name }}-store-provisioner-{{ .Release.Namespace }}
+  validationActions: [Deny]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-provisioner
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { storelink/component: provisioner, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels: { storelink/component: provisioner, app.kubernetes.io/instance: {{ .Release.Name }} }
+    spec:
+      serviceAccountName: {{ $name }}-provisioner
+      automountServiceAccountToken: true
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000 }
+      containers:
+        - name: provisioner
+          image: {{ .Values.images.app | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: [node, services/gateway/src/provisioner-main.ts]
+          env:
+            - { name: DATABASE_URL_FILE, value: /secrets/database-url }
+            - { name: API_KEY_PEPPER_FILE, value: /secrets/api-key-pepper }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - { name: UPSTREAM_SECRET_NAME, value: {{ .Values.upstreamSecretName | quote }} }
+            - { name: GATEWAY_INSTANCE, value: {{ .Release.Name | quote }} }
+            - { name: STORE_IMAGE_APP, value: {{ .Values.images.app | quote }} }
+            - { name: STORE_IMAGE_STORE, value: {{ .Values.images.store | quote }} }
+            - { name: STORE_IMAGE_MARIADB, value: {{ .Values.images.mariadb | quote }} }
+            - { name: STORE_IMAGE_PULL_POLICY, value: {{ .Values.images.pullPolicy | quote }} }
+            - { name: STORES_HOST_SUFFIX, value: {{ .Values.stores.hostSuffix | quote }} }
+            - { name: STORES_SCHEME, value: {{ .Values.stores.scheme | quote }} }
+            - { name: STORES_TLS_SECRET, value: {{ .Values.stores.tlsSecretName | quote }} }
+            - { name: STORES_TLS_CLUSTER_ISSUER, value: {{ .Values.stores.tlsClusterIssuer | quote }} }
+            - { name: STORES_QUOTA, value: {{ toJson .Values.stores.quota | quote }} }
+            - { name: STORES_INGRESS_CLASS, value: {{ .Values.ingress.className | quote }} }
+            - { name: STORES_STORAGE_CLASS, value: {{ .Values.storage.className | quote }} }
+            - { name: STORES_WORDPRESS_STORAGE, value: {{ .Values.stores.storage.wordpress | quote }} }
+            - { name: STORES_MARIADB_STORAGE, value: {{ .Values.stores.storage.mariadb | quote }} }
+            - { name: STORES_RESOURCES, value: {{ toJson .Values.stores.resources | quote }} }
+            - { name: STORE_TIMEZONE, value: {{ .Values.store.timezone | quote }} }
+            - { name: WOOCOMMERCE_VERSION, value: {{ .Values.store.woocommerceVersion | quote }} }
+          ports: [{ name: http, containerPort: 3000 }]
+          startupProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 2, failureThreshold: 60 }
+          readinessProbe: { httpGet: { path: /health/ready, port: http }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 10 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          resources: {{ toYaml .Values.stores.provisioner.resources | nindent 12 }}
+          volumeMounts: [{ name: secrets, mountPath: /secrets, readOnly: true }]
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ .Values.secretName }}
+            items:
+              - { key: database-url, path: database-url }
+              - { key: api-key-pepper, path: api-key-pepper }
+{{- end }}

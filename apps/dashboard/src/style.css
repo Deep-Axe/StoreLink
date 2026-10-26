@@ -919,3 +919,30 @@ td small {
 .connection-history {
   margin-top: 24px;
 }
+
+.badge.ready {
+  background: #eaf2e3;
+  color: #48713e;
+}
+.badge.provisioning,
+.badge.deleting {
+  background: #fff0df;
+  color: #9a621e;
+}
+.badge.failed {
+  background: #fce9e5;
+  color: #a13f31;
+}
+.store-failure {
+  color: #a13f31;
+  overflow-wrap: anywhere;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+.danger-button {
+  background: #9d3e31;
+}

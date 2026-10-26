@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import { Stores } from './stores.tsx';
 
 type User = {
   userId: string;
@@ -14,6 +15,8 @@ type Me = {
   chatConfigured: boolean;
   model: string;
   gatewayUrl: string;
+  storesConfigured?: boolean;
+  storeLimits?: { perUser: number; perTeam: number };
 };
 type Server = {
   id: string;
@@ -259,7 +262,13 @@ function App() {
           </div>
         </div>
         <nav aria-label="Main navigation">
-          {['Chat', 'Connections', 'Access', 'Activity'].map((name) => (
+          {[
+            'Chat',
+            ...(me.storesConfigured ? ['Stores'] : []),
+            'Connections',
+            'Access',
+            'Activity',
+          ].map((name) => (
             <button
               key={name}
               onClick={() => {
@@ -270,9 +279,13 @@ function App() {
             >
               <span aria-hidden="true" className="nav-icon">
                 {
-                  { Chat: '✧', Connections: '⊞', Access: '♙', Activity: '≋' }[
-                    name
-                  ]
+                  {
+                    Chat: '✧',
+                    Stores: '▤',
+                    Connections: '⊞',
+                    Access: '♙',
+                    Activity: '≋',
+                  }[name]
                 }
               </span>
               {name}
@@ -325,6 +338,8 @@ function App() {
           )}
           {tab === 'Chat' ? (
             <Chat me={me} run={run} />
+          ) : tab === 'Stores' ? (
+            <Stores me={me} request={api} run={run} />
           ) : tab === 'Connections' ? (
             <Connections me={me} run={run} />
           ) : tab === 'Access' ? (

@@ -4,6 +4,7 @@ StoreLink runs a WooCommerce store on Kubernetes and puts a team MCP gateway in 
 
 ## Features
 
+- **Multi-store provisioning:** create, retry and delete independent stores from **Stores**, with per-user/team limits, automatic MCP registration and namespace isolation. [Guide and verification](docs/multi-store.md).
 - **WooCommerce store:** WordPress, WooCommerce and MariaDB in the cluster, with persistent storage and cash-on-delivery checkout.
 - **WooCommerce MCP server:** list products, create product, list orders, get order and update order status, served over Streamable HTTP. Reachable only from the gateway.
 - **MCP gateway:** aggregates the tools of every enabled upstream behind one endpoint, namespaces tool names per server, and routes each call to its server. Every upstream call has a timeout. Runs as two replicas that share MCP sessions, rate limits and configuration changes through PostgreSQL.
@@ -32,7 +33,7 @@ flowchart LR
 
 | Component                  | Responsibility                                                                       |
 | -------------------------- | ------------------------------------------------------------------------------------ |
-| `apps/dashboard`           | React dashboard: connections, access, activity and chat                              |
+| `apps/dashboard`           | React dashboard: stores, connections, access, activity and chat                      |
 | `services/gateway`         | Express backend, aggregated MCP endpoint, upstream registry, audit log and chat loop |
 | `services/woocommerce-mcp` | MCP server for store products and orders, using the WooCommerce REST API             |
 | `services/time-mcp`        | Store timezone and day-window tools                                                  |
@@ -146,6 +147,10 @@ The key is stored in a Kubernetes Secret and used only by the gateway. Example p
 - "Compare today's order total with our operations sales target."
 
 Each answer lists the tools it called, and **Activity** shows the matching audit records. Conversations and token usage are saved per user.
+
+### Provision additional stores
+
+Open **Stores → Create store**, choose a name and short address, and wait for Ready. Members manage their own stores; admins manage their team’s stores. Each store gets independent persistent data and a tool prefix such as `woo-north__*`. Retry failed setup or confirm deletion from its card. Defaults allow two stores per user and three per team; Failed/Deleting stores count until removal finishes. See [multi-store setup, production TLS, backups and acceptance](docs/multi-store.md).
 
 ### Administration
 
@@ -351,6 +356,7 @@ node scripts/smoke-cluster.ts       # store tools and storefront checkout
 node scripts/smoke-dashboard.ts     # dashboard, invitations, keys and server management
 node scripts/smoke-failures.ts      # upstream outage, recovery and persistence
 node scripts/smoke-pod-delete.ts    # deleted upstream pod shows as Unreachable, then recovers
+node scripts/smoke-multistore.ts    # two-store lifecycle, isolation, retry/restart and one paid comparison
 node scripts/smoke-scaling.ts       # sessions, configuration changes and limits across two gateway pods (one live model call)
 node --env-file=.env scripts/smoke-chat.ts  # live chat flow (uses the OpenAI API)
 ```
@@ -373,12 +379,14 @@ kubectl -n storelink exec deploy/storelink-postgres -- \
 | #7 Scaling               | Implemented                              |
 | #8 Observability         | Implemented                              |
 | #9 Upgrades and rollback | Documented and rehearsed                 |
-| #2–#5, multi-store bonus | Not attempted                            |
+| Multi-store bonus        | Implemented and verified locally         |
+| #2–#5                    | Not attempted                            |
 
 [Verification](docs/verification.md#stand-out-items-and-additional-features) lists what each item covers and where it is implemented, along with additional features such as catalog change notifications, per-user conversations with token accounting, and single-use invitations.
 
 ## Documentation
 
+- [Multi-store provisioning](docs/multi-store.md)
 - [System design and tradeoffs](docs/system-design.md)
 - [Threat model](docs/threat-model.md)
 - [Verification](docs/verification.md)
