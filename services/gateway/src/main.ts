@@ -146,9 +146,39 @@ const refresh = setInterval(() => {
   })();
 }, 15000);
 refresh.unref();
+// Fast liveness probes catch short outages, such as a deleted pod being replaced.
+const recorded = new Map(
+  [...gateway.upstreams.values()].map((u) => [u.id, u.status]),
+);
+let checking = false;
+const health = setInterval(
+  () => {
+    if (checking || refreshing) return;
+    checking = true;
+    void (async () => {
+      try {
+        await Promise.all(
+          [...gateway.upstreams.keys()].map((id) => gateway.checkHealth(id)),
+        );
+        const upstreams = [...gateway.upstreams.values()];
+        if (upstreams.some((u) => recorded.get(u.id) !== u.status)) {
+          await registry?.recordHealth();
+          for (const u of upstreams) recorded.set(u.id, u.status);
+        }
+      } catch {
+        console.error('Upstream health check failed');
+      } finally {
+        checking = false;
+      }
+    })();
+  },
+  Number(process.env.HEALTH_INTERVAL_MS ?? 1000),
+);
+health.unref();
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.once(signal, async () => {
     clearInterval(refresh);
+    clearInterval(health);
     server.close();
     await mcpHandler.close();
     await registry?.close();

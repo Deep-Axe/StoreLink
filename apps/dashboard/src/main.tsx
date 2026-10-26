@@ -363,7 +363,7 @@ function Connections({ me, run }: { me: Me; run: Run }) {
   };
   useEffect(() => {
     void run(load);
-    const timer = setInterval(() => void load().catch(() => {}), 10000);
+    const timer = setInterval(() => void load().catch(() => {}), 3000);
     return () => clearInterval(timer);
   }, []);
   return (
