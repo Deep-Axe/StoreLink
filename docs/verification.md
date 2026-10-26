@@ -2,7 +2,7 @@
 
 ## Automated test suite
 
-`npm test` runs 40 deterministic unit and protocol tests across eleven test files without making paid OpenAI calls:
+`npm test` runs 52 deterministic unit and protocol tests across thirteen test files without making paid OpenAI calls:
 
 - **`tests/gateway.test.ts`:** API key HMAC digest lookup, revoked-key attribution after restart, `<slug>__<alias>` tool collision routing (`time__get_status` vs `ops__get_status`), immediate route removal on disable, hung upstream timeout isolation, uncertain mutation auditing without retries, argument schema validation, cross-team route isolation, audit-failure fail-closed behavior, and full MCP SDK Streamable HTTP exchanges.
 - **`tests/mcp-notifications.test.ts`:** Stateful Streamable HTTP + GET SSE sessions, team-scoped `notifications/tools/list_changed` delivery, suppression of unchanged catalog refreshes, cross-user/cross-key session rejection (`403`), revoked-key notification cutoff, per-user/global session limits (`429`), `DELETE` cleanup, and idle session expiry (`404`).
@@ -11,6 +11,8 @@
 - **`tests/woocommerce.test.ts`:** OAuth 1.0a HMAC-SHA256 canonical host signing, direct HTTP transport for both HTTP and HTTPS public store URLs, redirect/HTML/auth error rejection without mutation retry, and service token / CORS enforcement.
 - **`tests/chat.test.ts`, `tests/chat-admission.test.ts` & `tests/dashboard-api.test.ts`:** Scripted OpenAI Responses multi-round tool continuation, mid-turn catalog/authz rechecks, round/call/context bounds, DST-aware store day windows, categorized provider/timeout errors, atomic conversation persistence, and per-user/team/global admission limits that do not charge rejected requests against the hourly quota.
 - **`tests/metrics.test.ts`:** Per-server outcome counts and latency aggregation from the audit log, team and time-window filters, histogram-based p95 interpolation, and Prometheus exposition (counters, cumulative histogram buckets, upstream gauges, label escaping).
+- **`tests/credentials.test.ts`:** AES-256-GCM credential round trips with a fresh IV per write, fail-closed handling of altered IVs, tags and data, entries moved to another server's slot or read with another pepper, one-time sealing of plaintext entries guarded by the Secret's `resourceVersion`, removal of the plaintext copy kept by `kubectl apply`, and sealed development file credentials.
+- **`tests/scaling.test.ts`:** Two gateway replicas behind one origin sharing a database and session store: a session started on one replica continuing on the other, `DELETE` ending it on both, session limits across replicas, rebuilding a session after a replica loses its local copy, registry changes applied before routing, catalog notifications for a stream whose handshake finished on the other replica, and the per-key request limit shared by both replicas with `rate_limited` auditing.
 - **`tests/scripts.test.ts`:** `kubectl` binary resolution order and host-wide `flock` cluster lock contention (`exit 73`) and release.
 
 ## Cluster smoke checks
