@@ -123,6 +123,10 @@ export class KubernetesCredentials implements CredentialStore {
   async sealLegacy(): Promise<number> {
     for (let attempt = 0; ; attempt++) {
       const result = await this.request('GET');
+      const metadata = result.metadata as {
+        resourceVersion: string;
+        annotations?: Record<string, string>;
+      };
       const data = (result.data ?? {}) as Record<string, string>;
       const sealed: Record<string, string> = {};
       for (const [id, stored] of Object.entries(data)) {
@@ -130,12 +134,19 @@ export class KubernetesCredentials implements CredentialStore {
         if (!isSealed(value))
           sealed[id] = encode(seal(this.key, id, value as Credential));
       }
-      if (!Object.keys(sealed).length) return 0;
+      // `kubectl apply` keeps a copy of the applied data in this annotation.
+      const applied = metadata.annotations?.[lastApplied];
+      const plaintextCopy =
+        applied !== undefined &&
+        Object.values(
+          (JSON.parse(applied) as { data?: Record<string, string> }).data ?? {},
+        ).some((stored) => !isSealed(decode(stored)));
+      if (!Object.keys(sealed).length && !plaintextCopy) return 0;
       try {
         await this.request('PATCH', {
           metadata: {
-            resourceVersion: (result.metadata as { resourceVersion: string })
-              .resourceVersion,
+            resourceVersion: metadata.resourceVersion,
+            ...(plaintextCopy && { annotations: { [lastApplied]: null } }),
           },
           data: sealed,
         });
@@ -148,6 +159,7 @@ export class KubernetesCredentials implements CredentialStore {
   }
 }
 
+const lastApplied = 'kubectl.kubernetes.io/last-applied-configuration';
 const decode = (stored: string): unknown =>
   JSON.parse(Buffer.from(stored, 'base64').toString('utf8'));
 const encode = (value: string) => Buffer.from(value).toString('base64');

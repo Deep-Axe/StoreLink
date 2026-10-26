@@ -15,25 +15,36 @@ const credential = { header: 'authorization', value: 'Bearer upstream-token' };
 // An in-memory Secret that applies JSON merge patches like the API server.
 class FakeSecret extends KubernetesCredentials {
   data: Record<string, string> = {};
+  annotations: Record<string, string> = {};
   resourceVersion = 1;
   conflicts = 0;
   async request(method: string, body?: unknown) {
     if (method === 'PATCH') {
       const patch = body as {
-        metadata?: { resourceVersion: string };
+        metadata?: {
+          resourceVersion: string;
+          annotations?: Record<string, string | null>;
+        };
         data: Record<string, string | null>;
       };
       if (patch.metadata && this.conflicts-- > 0) {
         this.resourceVersion++;
         throw new SecretConflictError('conflict');
       }
-      for (const [id, value] of Object.entries(patch.data))
-        if (value === null) delete this.data[id];
-        else this.data[id] = value;
+      for (const [target, changes] of [
+        [this.data, patch.data],
+        [this.annotations, patch.metadata?.annotations ?? {}],
+      ] as const)
+        for (const [id, value] of Object.entries(changes))
+          if (value === null) delete target[id];
+          else target[id] = value;
       this.resourceVersion++;
     }
     return {
-      metadata: { resourceVersion: String(this.resourceVersion) },
+      metadata: {
+        resourceVersion: String(this.resourceVersion),
+        annotations: { ...this.annotations },
+      },
       data: { ...this.data },
     };
   }
@@ -103,6 +114,36 @@ test('plaintext entries from older releases are readable and sealed once', async
   assert.equal(secret.data.ops, ops);
   assert.deepEqual(await secret.get('time'), credential);
   assert.equal(await secret.sealLegacy(), 0);
+});
+
+test('a plaintext copy kept by kubectl apply is removed when sealing', async () => {
+  const secret = setup();
+  const plaintext = Buffer.from(JSON.stringify(credential)).toString('base64');
+  const lastApplied = 'kubectl.kubernetes.io/last-applied-configuration';
+  secret.annotations[lastApplied] = JSON.stringify({
+    data: { woo: plaintext },
+  });
+  secret.annotations.owner = 'operator';
+  secret.data.woo = plaintext;
+  assert.equal(await secret.sealLegacy(), 1);
+  assert.equal(secret.annotations[lastApplied], undefined);
+  assert.equal(secret.annotations.owner, 'operator');
+
+  // Data sealed by an earlier gateway, annotation still holding plaintext.
+  secret.annotations[lastApplied] = JSON.stringify({
+    data: { woo: plaintext },
+  });
+  assert.equal(await secret.sealLegacy(), 0);
+  assert.equal(secret.annotations[lastApplied], undefined);
+
+  // A copy that holds only sealed entries is left alone.
+  const sealedCopy = JSON.stringify({ data: { woo: secret.data.woo } });
+  secret.annotations[lastApplied] = sealedCopy;
+  const version = secret.resourceVersion;
+  assert.equal(await secret.sealLegacy(), 0);
+  assert.equal(secret.annotations[lastApplied], sealedCopy);
+  assert.equal(secret.resourceVersion, version);
+  assert.deepEqual(await secret.get('woo'), credential);
 });
 
 test('development file credentials are sealed too', async () => {
