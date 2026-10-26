@@ -7,6 +7,7 @@ RUN test -n "$WOOCOMMERCE_SHA256" && curl -fsSL "https://downloads.wordpress.org
     && echo "$WOOCOMMERCE_SHA256  /opt/woocommerce.zip" | sha256sum -c -
 COPY images/store/bootstrap.sh /opt/storelink/bootstrap.sh
 COPY images/store/configure.php /opt/storelink/configure.php
+COPY --chmod=0755 images/store/entrypoint.sh /opt/storelink/entrypoint.sh
 RUN printf 'memory_limit=256M\nupload_max_filesize=16M\npost_max_size=16M\n' > /usr/local/etc/php/conf.d/storelink.ini \
     && printf '<IfModule mpm_prefork_module>\nStartServers 1\nMinSpareServers 1\nMaxSpareServers 2\nMaxRequestWorkers 4\nMaxConnectionsPerChild 500\n</IfModule>\n' > /etc/apache2/mods-available/mpm_prefork.conf
 # Apache listens on an unprivileged port so the store runs as www-data.
@@ -15,3 +16,5 @@ RUN sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf \
     && grep -qx 'Listen 8080' /etc/apache2/ports.conf \
     && grep -qx '<VirtualHost \*:8080>' /etc/apache2/sites-available/000-default.conf
 USER 33:33
+ENTRYPOINT ["/opt/storelink/entrypoint.sh"]
+CMD ["apache2-foreground"]
