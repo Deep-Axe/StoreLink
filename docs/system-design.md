@@ -57,4 +57,12 @@ Chat translates the current gateway catalog to OpenAI Responses function tools. 
 
 Use the same Helm chart with production image references, public DNS/HTTPS hosts, TLS Secret, fresh application/adapter/model Secrets, and appropriate storage class/PVC sizes. The chart supplies probes, resource bounds and gateway-only upstream NetworkPolicies. A single-node `local-path` installation requires off-node database/content/Secret backups and restore testing. Production also needs operational log retention, credential recovery/rotation procedures, ingress abuse controls and stronger internal transport if the node/network trust boundary is insufficient.
 
+## Upgrades and rollback
+
+Each Helm revision captures the full set of manifests: image tags, configuration and the store bootstrap Job. The Job is named per revision (`storelink-store-bootstrap-<revision>`), so every upgrade or rollback reruns the idempotent WordPress and WooCommerce setup, and Helm prunes the previous revision's Job. Gateway pods apply the application migrations from an init container on every start.
+
+Rollback is safe for the application schema because migrations are additive and re-runnable (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`), and every added column is nullable or has a default. An older gateway runs against a newer schema and ignores columns it does not know. Destructive schema changes need a separate expand-and-contract release: add the new structure, migrate readers and writers, then remove the old structure in a later upgrade.
+
+Helm does not version persistent volume data. A rollback restores manifests and images but keeps orders, products, users, keys, audit records and any WooCommerce schema changes. Back up PostgreSQL, MariaDB and WordPress uploads before every upgrade, and restore them after rolling back if data must return to the earlier state. The README contains the backup, upgrade, rollback and restore commands.
+
 See [README](../README.md) for deployment and [verification](verification.md) for tested behavior versus remaining acceptance work.

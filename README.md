@@ -206,6 +206,67 @@ The same chart deploys to a single-node k3s server. The differences are in `valu
 
 6. Schedule backups of PostgreSQL, MariaDB, WordPress uploads and Secrets, and enable Secret encryption at rest.
 
+## Upgrades and rollback
+
+Every `helm upgrade` creates a new release revision. Store, MCP server and gateway changes all ship the same way: new image tags or values in one upgrade. Locally, `scripts/local-up.sh` builds new images and runs the upgrade.
+
+### 1. Back up the data
+
+Helm versions the Kubernetes manifests, not the data on the persistent volumes. Back up both databases and the WordPress uploads before each upgrade:
+
+```sh
+backup=~/storelink-backups/$(date +%Y%m%d-%H%M%S) && mkdir -p "$backup"
+kubectl -n storelink exec deploy/storelink-postgres -- \
+  pg_dump -U storelink -d storelink --format=custom > "$backup/postgres.dump"
+kubectl -n storelink exec deploy/storelink-mariadb -- \
+  sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction --routines wordpress' > "$backup/mariadb.sql"
+kubectl -n storelink exec deploy/storelink-wordpress -- \
+  tar -C /var/www/html -czf - wp-content/uploads > "$backup/wordpress-uploads.tgz"
+```
+
+### 2. Upgrade
+
+```sh
+helm history storelink -n storelink
+helm upgrade storelink charts/storelink -n storelink -f production-values.yaml \
+  --set-string images.app=<registry>/storelink/app:<new-tag> \
+  --set-string images.store=<registry>/storelink/wordpress:<new-tag> \
+  --wait --timeout 10m
+kubectl -n storelink wait --for=condition=complete jobs -l storelink/component=store-bootstrap --timeout=180s
+```
+
+`--wait` returns once every workload passes its readiness probe. To change a single setting and keep everything else, use `--reuse-values --set <key>=<value>`. Each revision runs its own store bootstrap Job (`storelink-store-bootstrap-<revision>`), and gateway pods apply database migrations when they start. Both steps are idempotent.
+
+### 3. Roll back
+
+```sh
+helm history storelink -n storelink
+helm rollback storelink <revision> -n storelink --wait --timeout 10m
+kubectl -n storelink wait --for=condition=complete jobs -l storelink/component=store-bootstrap --timeout=180s
+```
+
+A rollback creates a new revision that reapplies the selected revision's manifests: images, configuration, and that revision's bootstrap Job. Images referenced by earlier revisions must still be available in the registry.
+
+A rollback does not undo:
+
+- **PostgreSQL migrations.** Files in `services/gateway/migrations/` only add tables and columns and are safe to re-run. Older gateway versions run against the newer schema, and the added columns remain after a rollback.
+- **WordPress and WooCommerce database changes.** Plugin or core updates can change the MariaDB schema, and that data is not versioned by Helm.
+- **Data on the persistent volumes.** Orders, products, users, keys and audit records written after the upgrade remain in `storelink-postgres`, `storelink-mariadb` and `storelink-wordpress`.
+
+### 4. Restore data
+
+If an upgrade damages data, roll back first, then restore the backups:
+
+```sh
+kubectl -n storelink exec -i deploy/storelink-postgres -- \
+  pg_restore -U storelink -d storelink --clean --if-exists --no-owner < "$backup/postgres.dump"
+kubectl -n storelink exec -i deploy/storelink-mariadb -- \
+  sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" wordpress' < "$backup/mariadb.sql"
+kubectl -n storelink exec -i deploy/storelink-wordpress -- \
+  tar -C /var/www/html -xzf - < "$backup/wordpress-uploads.tgz"
+kubectl -n storelink rollout restart deploy/storelink-gateway deploy/storelink-wordpress
+```
+
 ## Development
 
 ```sh
