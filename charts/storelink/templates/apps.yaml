@@ -48,6 +48,7 @@ spec:
             - { name: CHAT_PER_USER_CONCURRENT, value: {{ .Values.chat.limits.perUserConcurrent | quote }} }
             - { name: CHAT_PER_TEAM_CONCURRENT, value: {{ .Values.chat.limits.perTeamConcurrent | quote }} }
             - { name: CHAT_GLOBAL_CONCURRENT, value: {{ .Values.chat.limits.globalConcurrent | quote }} }
+            - { name: HEALTH_INTERVAL_MS, value: {{ .Values.gateway.healthIntervalMs | quote }} }
             {{- if .Values.chat.enabled }}
             - { name: OPENAI_API_KEY_FILE, value: /secrets/openai-api-key }
             {{- end }}

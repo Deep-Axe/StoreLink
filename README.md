@@ -149,7 +149,7 @@ Each answer lists the tools it called, and **Activity** shows the matching audit
 
 ### Administration
 
-- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. Public HTTPS servers can be added directly. Cluster-internal origins must be listed in `gateway.extraUpstreamOrigins`. Credentials are stored in a Kubernetes Secret and never returned by the API.
+- **Connections:** add, edit, disable or remove MCP servers, each with an optional static header or bearer credential. The gateway pings each server every second, so a stopped or restarting server shows as Unreachable within about a second, and every status change is kept in the connection history. Public HTTPS servers can be added directly. Cluster-internal origins must be listed in `gateway.extraUpstreamOrigins`. Credentials are stored in a Kubernetes Secret and never returned by the API.
 - **Access:** invite members, and issue or revoke API keys.
 - **Activity:** the audit log of every tool call, showing user, server, tool, time, duration and outcome.
 
@@ -164,6 +164,7 @@ Common chart values:
 | `chat.limits.perUserHour`                                                  | `15`                                                         | Chat turns per user per hour                             |
 | `chat.limits.perUserConcurrent` / `perTeamConcurrent` / `globalConcurrent` | `1` / `4` / `16`                                             | Concurrent chat turns                                    |
 | `gateway.extraUpstreamOrigins`                                             | `[]`                                                         | Cluster-internal origins allowed as upstreams            |
+| `gateway.healthIntervalMs`                                                 | `1000`                                                       | Interval between upstream health probes                  |
 | `store.host`, `gateway.host`                                               | `store.storelink.localhost`, `dashboard.storelink.localhost` | Public hostnames                                         |
 | `store.timezone`                                                           | `Asia/Kolkata`                                               | Store timezone, which defines "today"                    |
 | `storage.className`                                                        | `local-path`                                                 | Storage class for the persistent volumes                 |
@@ -222,6 +223,7 @@ Cluster smoke tests run against the local deployment:
 node scripts/smoke-cluster.ts       # store tools and storefront checkout
 node scripts/smoke-dashboard.ts     # dashboard, invitations, keys and server management
 node scripts/smoke-failures.ts      # upstream outage, recovery and persistence
+node scripts/smoke-pod-delete.ts    # deleted upstream pod shows as Unreachable, then recovers
 node --env-file=.env scripts/smoke-chat.ts  # live chat flow (uses the OpenAI API)
 ```
 

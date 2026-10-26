@@ -77,9 +77,25 @@ export function upstreamClient(
     }
     return connection;
   }
+  // Reinitialize after a failed probe or discovery; a restarted upstream may not know the old session.
+  async function resetting<T>(work: (client: Client) => Promise<T>) {
+    const pending = connected();
+    try {
+      return await work(await pending);
+    } catch (error) {
+      if (connection === pending) {
+        connection = undefined;
+        await (await pending.catch(() => undefined))?.close();
+      }
+      throw error;
+    }
+  }
   return {
     async listTools(params, options) {
-      return (await connected()).listTools(params, options);
+      return resetting((client) => client.listTools(params, options));
+    },
+    async ping(options) {
+      await resetting((client) => client.ping(options));
     },
     async callTool(params, _schema, options) {
       return (await (

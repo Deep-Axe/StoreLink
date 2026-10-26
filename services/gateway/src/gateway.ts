@@ -16,6 +16,10 @@ export type ToolClient = {
     schema?: unknown,
     options?: { signal?: AbortSignal; timeout?: number },
   ) => Promise<CallToolResult>;
+  ping?: (options?: {
+    signal?: AbortSignal;
+    timeout?: number;
+  }) => Promise<unknown>;
 };
 
 export type Upstream = {
@@ -77,7 +81,10 @@ export class Gateway {
   pepper: Uint8Array;
   discoveryMs: number;
   callMs: number;
+  probeMs: number;
+  retryMs: number;
   upstreams = new Map<string, Upstream>();
+  private nextRetryAt = new Map<string, number>();
   routes = new Map<string, Route>();
   ajv = new Ajv({ strict: false, allErrors: false });
   private catalogListeners = new Set<(teamId: string) => void>();
@@ -115,7 +122,12 @@ export class Gateway {
   constructor(
     store: GatewayStore,
     pepper: Uint8Array,
-    options: { discoveryMs?: number; callMs?: number } = {},
+    options: {
+      discoveryMs?: number;
+      callMs?: number;
+      probeMs?: number;
+      retryMs?: number;
+    } = {},
   ) {
     // Validate the pepper before accepting any requests.
     hashApiKey('', pepper);
@@ -123,6 +135,8 @@ export class Gateway {
     this.pepper = pepper;
     this.discoveryMs = options.discoveryMs ?? 3000;
     this.callMs = options.callMs ?? 15000;
+    this.probeMs = options.probeMs ?? 1000;
+    this.retryMs = options.retryMs ?? 2000;
     addFormats.default(this.ajv);
   }
 
@@ -187,7 +201,33 @@ export class Gateway {
     upstream.status = upstream.enabled ? 'Unreachable' : 'Disabled';
     upstream.lastFailureAt = new Date().toISOString();
     upstream.lastError = reason;
+    // Hold the failure briefly so health reporting records it before recovery.
+    this.nextRetryAt.set(upstream.id, Date.now() + this.retryMs);
     this.dropRoutes(upstream.id);
+  }
+
+  // Ping a connected upstream, or rediscover an unreachable one once its retry delay passes.
+  async checkHealth(id: string): Promise<void> {
+    const upstream = this.upstreams.get(id);
+    if (!upstream || !upstream.enabled) return;
+    if (upstream.status !== 'Connected') {
+      if (Date.now() < (this.nextRetryAt.get(id) ?? 0)) return;
+      this.nextRetryAt.set(id, Date.now() + this.retryMs);
+      await this.refresh(id);
+      return;
+    }
+    const client = upstream.client;
+    if (!client.ping) return;
+    const generation = upstream.generation;
+    try {
+      await deadline(
+        (signal) => client.ping!({ signal, timeout: this.probeMs }),
+        this.probeMs,
+      );
+    } catch {
+      if (generation === upstream.generation)
+        this.failed(upstream, 'Health check failed or timed out');
+    }
   }
 
   async refresh(id: string): Promise<void> {
